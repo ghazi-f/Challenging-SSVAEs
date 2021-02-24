@@ -55,6 +55,9 @@ parser.set_defaults(highway=False)
 parser.add_argument('--markovian', dest='markovian', action='store_true')
 parser.add_argument('--no-markovian', dest='markovian', action='store_false')
 parser.set_defaults(markovian=True)
+parser.add_argument('--alternative', dest='alternative', action='store_true')
+parser.add_argument('--no-alternative', dest='alternative', action='store_false')
+parser.set_defaults(alternative=False)
 parser.add_argument("--losses", default='SSVAE', choices=["S", "VAE", "SSVAE", "SSPIWO", "SSiPIWO", "SSIWAE"], type=str)
 parser.add_argument("--training_iw_samples", default=5, type=int)
 parser.add_argument("--testing_iw_samples", default=5, type=int)
@@ -169,7 +172,8 @@ def main():
                        kl_th=flags.kl_th, highway=flags.highway, losses=LOSSES, dropout=flags.dropout,
                        training_iw_samples=flags.training_iw_samples, testing_iw_samples=flags.testing_iw_samples,
                        loss_params=LOSS_PARAMS, piwo=PIWO, ipiwo=IPIWO, optimizer=optim.AdamW, markovian=flags.markovian
-                       , word_dropout=flags.word_dropout, contiguous_lm=False, tied_embeddings=flags.tied_embeddings)
+                       , word_dropout=flags.word_dropout, contiguous_lm=False, tied_embeddings=flags.tied_embeddings,
+                       alternative=flags.alternative)
     val_iterator = iter(data.val_iter)
     supervised_iterator = iter(data.sup_iter)
     print("Launching experiment ", flags.test_name)

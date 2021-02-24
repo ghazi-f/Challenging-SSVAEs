@@ -104,13 +104,14 @@ class SSSentenceClassification(nn.Module, metaclass=abc.ABCMeta):
 
         #                          ------------ supervised Forward/Backward -----------------
         if self.supervised_v.name in samples and self.supervise:
+            supervised_n_iw = 1 if self.h_params.alternative else self.h_params.training_iw_samples
             # Getting sequence lengths
             x_len = (samples['x'] != self.generated_v.ignore).float().sum(-1)
             # Forward pass
             infer_inputs = {'x': samples['x'],  'x_prev': samples['x_prev'],
                             self.supervised_v.name: samples[self.supervised_v.name]}
             if self.iw:  # and (self.step >= self.h_params.anneal_kl[0]):
-                self.infer_last_states_sup = self.infer_bn(infer_inputs, n_iw=self.h_params.training_iw_samples,
+                self.infer_last_states_sup = self.infer_bn(infer_inputs, n_iw=supervised_n_iw,
                                                        prev_states=self.infer_last_states_sup, complete=True, lens=x_len)
             else:
                 self.infer_last_states_sup = self.infer_bn(infer_inputs, prev_states=self.infer_last_states_sup,
@@ -118,7 +119,7 @@ class SSSentenceClassification(nn.Module, metaclass=abc.ABCMeta):
 
             gen_inputs = {**{k.name: v for k, v in self.infer_bn.variables_hat.items()}, **infer_inputs}
             if self.iw:
-                gen_inputs, x_len = self._harmonize_input_shapes(gen_inputs, self.h_params.training_iw_samples, x_len)
+                gen_inputs, x_len = self._harmonize_input_shapes(gen_inputs, supervised_n_iw, x_len)
             if self.step < self.h_params.anneal_kl[0]:
                 self.gen_last_states = self.gen_bn(gen_inputs, target=self.generated_v,
                                                    prev_states=self.gen_last_states, lens=x_len)
