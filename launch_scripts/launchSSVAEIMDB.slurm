@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=VAE
 #SBATCH --gres=gpu:1
+#SBATCH --qos=qos_gpu-t4
 #SBATCH --output=./imdbvae4.txt
 #SBATCH --error=./imdbvae4.err
 #SBATCH --nodes=1
+#SBATCH --cpus-per-task=5
 #SBATCH --ntasks-per-node=1
 # Unweighted experiments
 srun python sent_train.py --losses "SSVAE" --test_name "IMDB4/SSVAE/0.001small1" --supervision_proportion 0.001 --batch_size 32 --grad_accu 2 --dev_index 1 --dataset imdb --result_csv imdb4.csv

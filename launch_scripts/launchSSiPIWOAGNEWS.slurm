@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=iPIWO
 #SBATCH --gres=gpu:1
+#SBATCH --qos=qos_gpu-t4
 #SBATCH --output=./agnewsipiwof.txt
 #SBATCH --error=./agnewsipiwof.err
 #SBATCH --nodes=1
+#SBATCH --cpus-per-task=5
 #SBATCH --ntasks-per-node=1
 # Architecture 1
 # Unweighted experiments

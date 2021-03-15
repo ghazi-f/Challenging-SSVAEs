@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=IWAE
 #SBATCH --gres=gpu:1
+#SBATCH --qos=qos_gpu-t4
 #SBATCH --output=./imdbiwae4.txt
 #SBATCH --error=./imdbiwae4.err
 #SBATCH --nodes=1
+#SBATCH --cpus-per-task=5
 #SBATCH --ntasks-per-node=1
 # Unweighted experiments
 srun python sent_train.py --losses "SSIWAE" --test_name "IMDB4/SSIWAE/0.001small1_alt" --batch_size 16 --grad_accu 4 --supervision_proportion 0.001 --dev_index 1 --dataset imdb --result_csv imdb4.csv --alternative

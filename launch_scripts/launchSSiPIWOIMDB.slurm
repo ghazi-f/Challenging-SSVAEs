@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=iPIWO
 #SBATCH --gres=gpu:1
+#SBATCH --qos=qos_gpu-t4
 #SBATCH --output=./imdbipiwo4.txt
 #SBATCH --error=./imdbipiwo4.err
 #SBATCH --nodes=1
+#SBATCH --cpus-per-task=5
 #SBATCH --ntasks-per-node=1
 # Unweighted experiments
 srun python sent_train.py --losses "SSiPIWO" --test_name "IMDB4/SSiPIWO/0.001small1" --batch_size 32 --grad_accu 2 --supervision_proportion 0.001 --dev_index 1 --dataset imdb --result_csv imdb4.csv
