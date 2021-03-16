@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=VAE
+#SBATCH --partition=gpu_p1
 #SBATCH --gres=gpu:1
 #SBATCH --qos=qos_gpu-t4
 #SBATCH --output=./imdbvae4.txt
