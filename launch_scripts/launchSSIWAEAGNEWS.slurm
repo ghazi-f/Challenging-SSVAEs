@@ -4,7 +4,7 @@
 #SBATCH --qos=qos_gpu-t4
 #SBATCH --output=./agnewsiwaef.txt
 #SBATCH --error=./agnewsiwaef.err
-#SBATCH --time=48:00:00
+#SBATCH --time=100:00:00
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=5
 #SBATCH --ntasks-per-node=1
