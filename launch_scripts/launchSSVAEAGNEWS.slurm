@@ -155,6 +155,7 @@ srun python sent_train.py --losses "SSVAE" --test_name "AGNEWS/SSVAE/1.0small2w3
 srun python sent_train.py --losses "SSVAE" --test_name "AGNEWS/SSVAE/1.0small3w3" --supervision_proportion 1.0 --batch_size 32 --grad_accu 2 --max_len 64 --dev_index 3 --generation_weight 0.001 --dataset ag_news --result_csv agnews.csv
 srun python sent_train.py --losses "SSVAE" --test_name "AGNEWS/SSVAE/1.0small4w3" --supervision_proportion 1.0 --batch_size 32 --grad_accu 2 --max_len 64 --dev_index 4 --generation_weight 0.001 --dataset ag_news --result_csv agnews.csv
 srun python sent_train.py --losses "SSVAE" --test_name "AGNEWS/SSVAE/1.0small5w3" --supervision_proportion 1.0 --batch_size 32 --grad_accu 2 --max_len 64 --dev_index 5 --generation_weight 0.001 --dataset ag_news --result_csv agnews.csv
+done
 # Architecture 2
 # Unweighted experiments
 #xsrun python sent_train.py --losses "SSVAE" --test_name "AGNEWS2/SSVAE/0.001small1" --supervision_proportion 0.001 --max_len 64 --batch_size 32 --grad_accu 2 --dev_index 1 --divide_by 2 --no-pretrained_embeddings --dataset ag_news --result_csv agnews.csv
