@@ -8,6 +8,8 @@
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=5
 #SBATCH --ntasks-per-node=1
+for iter in 1 2 3 4
+do
 # Architecture 1
 # Unweighted experiments
 srun python sent_train.py --losses "SSiPIWO" --test_name "AGNEWS/SSiPIWO/0.001small1" --batch_size 32 --grad_accu 2 --max_len 64 --supervision_proportion 0.001 --dev_index 1 --dataset ag_news --result_csv agnews.csv
@@ -153,6 +155,7 @@ srun python sent_train.py --losses "SSiPIWO" --test_name "AGNEWS/SSiPIWO/1.0smal
 srun python sent_train.py --losses "SSiPIWO" --test_name "AGNEWS/SSiPIWO/1.0small3w3" --supervision_proportion 1.0 --batch_size 32 --grad_accu 2 --max_len 64 --dev_index 3 --generation_weight 0.001 --dataset ag_news --result_csv agnews.csv
 srun python sent_train.py --losses "SSiPIWO" --test_name "AGNEWS/SSiPIWO/1.0small4w3" --supervision_proportion 1.0 --batch_size 32 --grad_accu 2 --max_len 64 --dev_index 4 --generation_weight 0.001 --dataset ag_news --result_csv agnews.csv
 srun python sent_train.py --losses "SSiPIWO" --test_name "AGNEWS/SSiPIWO/1.0small5w3" --supervision_proportion 1.0 --batch_size 32 --grad_accu 2 --max_len 64 --dev_index 5 --generation_weight 0.001 --dataset ag_news --result_csv agnews.csv
+done
 # Architecture 2
 # Unweighted experiments
 #srun python sent_train.py --losses "SSiPIWO" --test_name "AGNEWS2/SSiPIWO/0.001small1" --batch_size 32 --grad_accu 2 --max_len 64 --supervision_proportion 0.001 --dev_index 1 --divide_by 2 --no-pretrained_embeddings --dataset ag_news --result_csv agnews2.csv

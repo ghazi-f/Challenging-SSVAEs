@@ -8,6 +8,8 @@
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=5
 #SBATCH --ntasks-per-node=1
+for iter in 1 2 3 4
+do
 # Architecture 1
 # Unweighted experiments
 srun python sent_train.py --losses "SSVAE" --test_name "AGNEWS/SSVAE/0.001small1" --supervision_proportion 0.001 --max_len 64 --batch_size 32 --grad_accu 2 --dev_index 1 --dataset ag_news --result_csv agnews.csv
