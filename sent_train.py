@@ -92,18 +92,18 @@ if FORCE_EVAL:
     flags.mode = "eval"
     flags.result_csv = "imdbeval.csv"
 # Manual Settings, Deactivate before pushing
-if False:
-    flags.losses = 'S'
+if True:
+    flags.losses = 'SSVAE'
     flags.batch_size = 32
     flags.grad_accu = 1
-    flags.max_len = 256
+    flags.max_len = 64
     flags.encoder_h = 512
-    flags.test_name = "SSVAE/IMDB/test7"
+    flags.test_name = "SSVAE/IMDB/test8"
     flags.unsupervision_proportion = 1
-    flags.supervision_proportion = 0.125
+    flags.supervision_proportion = 0.10
     flags.dev_index = 5
     #flags.pretrained_embeddings = True[38. 42. 49. 54. 72.]
-    flags.dataset = "imdb"
+    flags.dataset = "ag_news"
 
 
 if False:

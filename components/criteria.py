@@ -137,6 +137,8 @@ class ELBo(BaseCriterion):
                                      ).view(self.gen_net.variables_star[self.generated_v].shape) * self.sequence_mask
 
         self.valid_n_samples = torch.sum(self.sequence_mask)
+        sen_len_kl = self.sequence_mask.sum(-1).unsqueeze(-1)
+        sen_len_rec = 1 if any([lv.sequence_lv for lv in self.gen_lvs.values()]) else sen_len_kl
         # Applying KL Thresholding (Free Bits)
         if self.h_params.kl_th is None or actual:
             thr = None
@@ -167,12 +169,13 @@ class ELBo(BaseCriterion):
             if not actual and type(kl) != int:
                 max_kl = torch.max(torch.stack([kullback_liebler(self.infer_lvs[lv_n], self.gen_lvs[lv_n], thr=thr)
                           for lv_n in self.infer_lvs.keys()]), dim=0)
-                loss = - torch.sum(torch.min(self.log_p_xIz, -coeff * max_kl[0]/self.h_params.max_elbo), dim=(0, 1)) / self.valid_n_samples
+                loss = - (torch.min(self.log_p_xIz/sen_len_rec,
+                                    -coeff * max_kl[0]/self.h_params.max_elbo/sen_len_kl)).sum(1).mean(0)
                 # loss = - torch.sum(torch.min(self.log_p_xIz, -coeff * kl/3), dim=(0, 1)) / self.valid_n_samples
             else:
-                loss = - torch.sum(self.log_p_xIz - coeff * kl, dim=(0, 1))/self.valid_n_samples
+                loss = - (self.log_p_xIz/sen_len_rec - coeff * kl/sen_len_kl).sum(1).mean(0)
         else:
-            loss = - torch.sum(self.log_p_xIz - coeff * kl, dim=(0, 1))/self.valid_n_samples
+            loss = - (self.log_p_xIz/sen_len_rec - coeff * kl/sen_len_kl).sum(1).mean(0)
 
         with torch.no_grad():
             if observed is None:
@@ -185,7 +188,7 @@ class ELBo(BaseCriterion):
                     un_log_p_xIz *= self.sequence_mask
                     kl = sum([kullback_liebler(self.infer_lvs[lv_n], self.gen_lvs[lv_n], thr=None)
                               for lv_n in self.infer_lvs.keys()]) * self.sequence_mask
-                    unweighted_loss = - torch.sum(un_log_p_xIz - kl, dim=(0, 1))/self.valid_n_samples
+                    unweighted_loss = - (un_log_p_xIz/sen_len_rec - kl/sen_len_kl).sum(1).mean(0)
                 self._prepare_metrics(unweighted_loss)
 
         return loss
@@ -292,6 +295,8 @@ class IWLBo(ELBo):
         criterion = self._unweighted_criterion if actual else self.criterion
         self.sequence_mask = (self.gen_net.variables_star[self.generated_v] != self.generated_v.ignore).float()
         self.valid_n_samples = torch.sum(self.sequence_mask)
+        sen_len_kl = self.sequence_mask.sum(-1).unsqueeze(-1)
+        sen_len_rec = 1 if any([lv.sequence_lv for lv in self.gen_lvs.values()]) else sen_len_kl
         loss_shape = self.generated_v.post_params['logits'].shape[:-1]
         if len(loss_shape) > 2:
             logits, gt = self.generated_v.post_params['logits'], self.gen_net.variables_star[self.generated_v]
@@ -339,37 +344,32 @@ class IWLBo(ELBo):
         log_p_xIz = (log_p_xIz + log_p_xIz_obs) * self.sequence_mask
 
         # Calculating IWLBo Gradient estimate
-        log_wi = coeff * (log_p_z - log_q_zIx) + log_p_xIz
+        log_wi = (coeff * (log_p_z - log_q_zIx)/sen_len_kl + log_p_xIz/sen_len_rec).sum(-1)
         detached_log_wi = log_wi.detach()
         max_log_wi = torch.max(detached_log_wi)
         detached_exp_log_wi = torch.exp(detached_log_wi - max_log_wi)
 
         if actual:
-            n_samples_correction = 1
             while detached_exp_log_wi.ndim > self.input_dimensions:
-                n_samples_correction *= detached_exp_log_wi.shape[0]
                 detached_exp_log_wi = torch.mean(detached_exp_log_wi, dim=0)
-            loss = - torch.sum(torch.log(detached_exp_log_wi+1e-8) +
-                               max_log_wi)/(self.valid_n_samples/n_samples_correction)
+            loss = - torch.mean(torch.log(detached_exp_log_wi) + max_log_wi)
         else:
             DReG_weights = (detached_exp_log_wi / (1e-8 + torch.sum(detached_exp_log_wi, dim=0).unsqueeze(0)))**2
-            loss = - torch.sum(DReG_weights * log_wi)/self.valid_n_samples
+            loss = - torch.mean(DReG_weights * log_wi)
 
         with torch.no_grad():
             if observed is None:
                 if actual:
                     unweighted_loss = loss
                 else:
-                    log_wi = (log_p_z - log_q_zIx) + log_p_xIz
+                    log_wi = ((log_p_z - log_q_zIx)/sen_len_kl + log_p_xIz/sen_len_rec).sum(-1)
                     max_log_wi = torch.max(log_wi)
                     exp_log_wi = torch.exp(log_wi - max_log_wi)
-                    n_samples_correction = 1
                     while exp_log_wi.ndim > self.input_dimensions:
-                        n_samples_correction *= exp_log_wi.shape[0]
                         exp_log_wi = torch.mean(exp_log_wi, dim=0)
-                    summed_log_wi = torch.log(exp_log_wi+1e-8) + max_log_wi
-                    unweighted_loss = - torch.sum(summed_log_wi)/(self.valid_n_samples/n_samples_correction)
-                self.ll_value = torch.sum(log_p_xIz) / self.valid_n_samples
+                    summed_log_wi = torch.log(exp_log_wi) + max_log_wi
+                    unweighted_loss = - torch.mean(summed_log_wi)
+                self.ll_value = ((log_p_xIz/sen_len_rec).sum(-1)).mean()
                 self._prepare_metrics(unweighted_loss)
 
         return loss
@@ -380,6 +380,7 @@ class IWLBo(ELBo):
         LL_value = self.ll_value
         KL_dict = {}
         kl_sum = 0
+        sen_len_kl = self.sequence_mask.sum(-1).unsqueeze(-1)
         if self.model.step >= self.h_params.anneal_kl[0]:
             for lv in self.gen_lvs.keys():
                 if lv not in self.infer_lvs: continue
@@ -390,7 +391,7 @@ class IWLBo(ELBo):
                                             if gen_lv in self.gen_net.parent else '')
                 KL_name = '/KL(q({})IIp({}))'.format(infer_v_name, gen_v_name)
                 kl_i = kullback_liebler(inf_lv, gen_lv)*self.sequence_mask
-                KL_value = torch.sum(kl_i)/self.valid_n_samples
+                KL_value = (kl_i/sen_len_kl).sum(-1).mean()
                 kl_sum += KL_value
                 KL_dict[KL_name] = KL_value
 
