@@ -92,9 +92,10 @@ if FORCE_EVAL:
     flags.mode = "eval"
     flags.result_csv = "imdbeval.csv"
 # Manual Settings, Deactivate before pushing
-if True:
-    flags.losses = 'SSVAE'
-    flags.batch_size = 32
+if False:
+    os.chdir("..\..\GLUE_BENCH")
+    flags.losses = 'SSPIWO'
+    flags.batch_size = 4
     flags.grad_accu = 1
     flags.max_len = 64
     flags.encoder_h = 512
