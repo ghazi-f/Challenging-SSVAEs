@@ -8,8 +8,7 @@
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=5
 #SBATCH --ntasks-per-node=1
-for iter in 1 2 3 4
-do
+
 # Unweighted experiments
 srun python sent_train.py --losses "SSVAE" --test_name "IMDB4/SSVAE/0.001small1" --supervision_proportion 0.001 --batch_size 32 --grad_accu 2 --dev_index 1 --dataset imdb --result_csv imdb4.csv
 srun python sent_train.py --losses "SSVAE" --test_name "IMDB4/SSVAE/0.001small2" --supervision_proportion 0.001 --batch_size 32 --grad_accu 2 --dev_index 2 --dataset imdb --result_csv imdb4.csv
@@ -154,7 +153,7 @@ srun python sent_train.py --losses "SSVAE" --test_name "IMDB4/SSVAE/1.0small2w3"
 srun python sent_train.py --losses "SSVAE" --test_name "IMDB4/SSVAE/1.0small3w3" --supervision_proportion 1.0 --batch_size 32 --grad_accu 2 --dev_index 3 --generation_weight 0.001 --dataset imdb --result_csv imdb4.csv
 srun python sent_train.py --losses "SSVAE" --test_name "IMDB4/SSVAE/1.0small4w3" --supervision_proportion 1.0 --batch_size 32 --grad_accu 2 --dev_index 4 --generation_weight 0.001 --dataset imdb --result_csv imdb4.csv
 srun python sent_train.py --losses "SSVAE" --test_name "IMDB4/SSVAE/1.0small5w3" --supervision_proportion 1.0 --batch_size 32 --grad_accu 2 --dev_index 5 --generation_weight 0.001 --dataset imdb --result_csv imdb4.csv
-done
+
 # Size experiments
 #srun python sent_train.py --losses "SSVAE" --test_name "IMDB4/SSVAE/0.01size1uns31" --unsupervision_proportion 1. --supervision_proportion 1.0 --batch_size 32 --grad_accu 2 --no-pretrained_embeddings --embedding_dim 20 --z_size 20 --pos_h 10 --pos_embedding_dim 10 --encoder_h 20 --decoder_h 20 --dev_index 1 --dataset imdb --result_csv imdbsz.csv
 #srun python sent_train.py --losses "SSVAE" --test_name "IMDB4/SSVAE/0.01size1uns32" --unsupervision_proportion 1. --supervision_proportion 1.0 --batch_size 32 --grad_accu 2 --no-pretrained_embeddings --embedding_dim 20 --z_size 20 --pos_h 10 --pos_embedding_dim 10 --encoder_h 20 --decoder_h 20 --dev_index 2 --dataset imdb --result_csv imdbsz.csv
