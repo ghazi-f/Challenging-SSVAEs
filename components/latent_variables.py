@@ -121,7 +121,8 @@ class BaseLatentVariable(nn.Module, metaclass=abc.ABCMeta):
     def prior_log_prob(self, sample):
         assert not self.inv_seq, "Reversed priors are still not permitted"
         assert self.allow_prior, "{} Doesn't allow for a prior".format(self)
-        if sample.dtype == torch.long and isinstance(self, Categorical):
+        hard_categorical = (sample.dtype == torch.long and isinstance(self, Categorical))
+        if hard_categorical:
             sample = F.one_hot(sample, self.size).float()
         if self.prior_sequential_link is not None:
             sample_rep = self.rep(sample, step_wise=False)
@@ -147,7 +148,10 @@ class BaseLatentVariable(nn.Module, metaclass=abc.ABCMeta):
                                  if k not in ('temperature', 'n_disc')}
             self.post_params = {k: v.expand((*sample.shape[:-1], self.size)) for k, v in output_params.items()
                                 if k not in ('temperature', 'n_disc')}
-            return prior_distrib.log_prob(sample)
+            if hard_categorical:
+                return (sample*torch.log_softmax(self.post_params['logits']/self.prior_params['temperature'], -1)).sum(-1)
+            else:
+                return prior_distrib.log_prob(sample)
 
     def forward(self, link_approximator, inputs, prior=None, gt_samples=None, complete=True, lens=None):
         if isinstance(link_approximator, SequentialLink) or (link_approximator.residual is not None and
