@@ -107,7 +107,7 @@ class SSSentenceClassification(nn.Module, metaclass=abc.ABCMeta):
             supervised_n_iw = 1 if self.h_params.alternative else self.h_params.training_iw_samples
             # Getting sequence lengths
             x_len = (samples['x'] != self.generated_v.ignore).float().sum(-1)
-            # Forward pass
+            # Supervised Forward pass
             infer_inputs = {'x': samples['x'],  'x_prev': samples['x_prev'],
                             self.supervised_v.name: samples[self.supervised_v.name]}
             if self.iw:  # and (self.step >= self.h_params.anneal_kl[0]):
@@ -117,19 +117,21 @@ class SSSentenceClassification(nn.Module, metaclass=abc.ABCMeta):
                 self.infer_last_states_sup = self.infer_bn(infer_inputs, prev_states=self.infer_last_states_sup,
                                                            complete=True, lens=x_len)
 
-            gen_inputs = {**{k.name: v for k, v in self.infer_bn.variables_hat.items()}, **infer_inputs}
+            gen_inputs = {**{k.name: v for k, v in self.infer_bn.variables_hat.items()}, **infer_inputs,
+                          self.supervised_v.name: samples[self.supervised_v.name]
+                          }
             if self.iw:
                 gen_inputs, x_len = self._harmonize_input_shapes(gen_inputs, supervised_n_iw, x_len)
             if self.step < self.h_params.anneal_kl[0]:
-                self.gen_last_states = self.gen_bn(gen_inputs, target=self.generated_v,
+                self.gen_last_states = self.gen_bn(gen_inputs, #target=self.generated_v,
                                                    prev_states=self.gen_last_states, lens=x_len)
             else:
                 self.gen_last_states = self.gen_bn(gen_inputs, prev_states=self.gen_last_states, lens=x_len)
             # Loss computation and backward pass
-            losses_sup = [(loss.get_loss() if isinstance(loss, Supervision)
-                           else loss.get_loss(observed=[self.supervised_v.name])
-                           ) * loss.w  # conditional ELBo
-                          for loss in self.losses ]
+            sup_loss_value = [loss.get_loss() * loss.w for loss in self.losses if isinstance(loss, Supervision)][0]
+            unsup_loss_value = [loss.get_loss(observed=[self.supervised_v.name])
+                                * loss.w for loss in self.losses if not isinstance(loss, Supervision)][0]
+            losses_sup = [unsup_loss_value, sup_loss_value]
 
             # Cleaning computation graph:
             self.gen_bn.clear_values()
@@ -254,26 +256,20 @@ class SSSentenceClassification(nn.Module, metaclass=abc.ABCMeta):
             temp = 1.0
             only_z_sampling = True
             gen_len = self.h_params.max_len * (3 if self.h_params.contiguous_lm else 1)
-            z_gen = self.gen_bn.name_to_v['z']
+            z_gen, y_gen = self.gen_bn.name_to_v['z'], self.gen_bn.name_to_v['y']
             if z_gen not in self.gen_bn.parent:
-                if self.h_params.n_latents > 1:
-                    z_sample = []
-                    for _ in range(repeats):
-                        z_sample_i = z_gen.prior_sample((1,))[0].repeat(n_samples, 1)
-                        z_sample_alt = z_gen.prior_sample((1,))[0]
-                        for i in range(self.h_params.n_latents):
-                            start, end = int(i * self.h_params.z_size / self.h_params.n_latents), \
-                                         int((i + 1) * self.h_params.z_size / self.h_params.n_latents)
-                            z_sample_i[i, ..., start:end] = z_sample_alt[0, ..., start:end]
-                        z_sample.append(z_sample_i)
-                    z_sample = torch.cat(z_sample)
-                else:
-                    z_sample = z_gen.prior_sample((n_samples, ))[0]
+                z_sample = z_gen.prior_sample((n_samples, ))[0]
             else:
                 z_sample = None
+            if y_gen not in self.gen_bn.parent:
+                y_sample = y_gen.prior_sample((n_samples, ))[0]
+            else:
+                y_sample = None
             for i in range(gen_len):
                 if z_sample is not None:
                     z_input = {'z': z_sample.unsqueeze(1).expand(z_sample.shape[0], i+1, z_sample.shape[1])}
+                    if y_sample is not None:
+                        z_input['y'] = y_sample.unsqueeze(1).expand(y_sample.shape[0], i+1, y_sample.shape[1])
                     self.gen_bn({'x_prev': x_prev, **z_input})
                 else:
                     z_sample = None
@@ -316,6 +312,8 @@ class SSSentenceClassification(nn.Module, metaclass=abc.ABCMeta):
                                                                     and v in self.infer_bn.parent)]
             iwlbo = IWLBo(self, 1)
             for i, batch in enumerate(tqdm(iterator, desc="Getting Model Perplexity")):
+                self.gen_bn.clear_values()
+                self.infer_bn.clear_values()
                 if batch.text.shape[1] < 2: continue
                 infer_prev, gen_prev = self({'x': batch.text[..., 1:],
                                              'x_prev': batch.text[..., :-1]}, prev_states=(infer_prev, gen_prev),
