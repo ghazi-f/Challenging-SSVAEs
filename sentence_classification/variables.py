@@ -71,7 +71,8 @@ class YvalInfer(Categorical):
 
 
 class YvalGen(Categorical):
-    def __init__(self, h_params, pos_embeddings, sequence_lv=True):
+    def __init__(self, h_params, pos_embeddings, sequence_lv=True, allow_prior=False):
         super(YvalGen, self).__init__(h_params.tag_size, 'y', h_params.device,  pos_embeddings,
-                                      h_params.pos_ignore_index, markovian=True, sequence_lv=sequence_lv)
+                                      h_params.pos_ignore_index, markovian=True, sequence_lv=sequence_lv,
+                                      allow_prior=allow_prior)
 
