@@ -40,13 +40,13 @@ parser.add_argument('--pretrained_embeddings', dest='pretrained_embeddings', act
 parser.add_argument('--no-pretrained_embeddings', dest='pretrained_embeddings', action='store_false')
 parser.set_defaults(pretrained_embeddings=True)
 parser.add_argument("--pos_embedding_dim", default=50, type=int)  # must be equal to encoder_h and decoder_h
-parser.add_argument("--z_size", default=100, type=int)  # must be equal to encoder_h and decoder_h
-parser.add_argument("--text_rep_l", default=2, type=int) # irrelevant
+parser.add_argument("--z_size", default=32, type=int)  # must be equal to encoder_h and decoder_h
+parser.add_argument("--text_rep_l", default=1, type=int) # irrelevant
 parser.add_argument("--text_rep_h", default=200, type=int) # irrelevant
 parser.add_argument("--encoder_h", default=200, type=int)
-parser.add_argument("--encoder_l", default=2, type=int)
+parser.add_argument("--encoder_l", default=1, type=int)
 parser.add_argument("--pos_h", default=50, type=int) # for y in encoder and y_emb in decoder
-parser.add_argument("--pos_l", default=2, type=int) # for y in encoder and y_emb in decoder
+parser.add_argument("--pos_l", default=1, type=int) # for y in encoder and y_emb in decoder
 parser.add_argument("--decoder_h", default=200, type=int)
 parser.add_argument("--decoder_l", default=1, type=int)
 parser.add_argument('--highway', dest='highway', action='store_true')
@@ -58,12 +58,13 @@ parser.set_defaults(markovian=True)
 parser.add_argument('--alternative', dest='alternative', action='store_true')
 parser.add_argument('--no-alternative', dest='alternative', action='store_false')
 parser.set_defaults(alternative=False)
+parser.add_argument("--sup_start", default=2, choices=[0, 1, 2], type=int)
 parser.add_argument("--losses", default='SSVAE', choices=["S", "VAE", "SSVAE", "SSPIWO", "SSiPIWO", "SSIWAE"], type=str)
 parser.add_argument("--training_iw_samples", default=20, type=int)
 parser.add_argument("--testing_iw_samples", default=5, type=int)
 parser.add_argument("--test_prior_samples", default=2, type=int)
-parser.add_argument("--anneal_kl0", default=000, type=int)
-parser.add_argument("--anneal_kl1", default=3000, type=int)
+parser.add_argument("--anneal_kl0", default=3000, type=int)
+parser.add_argument("--anneal_kl1", default=6000, type=int)
 parser.add_argument("--grad_clip", default=None, type=float)
 parser.add_argument("--kl_th", default=0., type=float or None)
 parser.add_argument("--dropout", default=0.5, type=float)
@@ -95,14 +96,22 @@ if FORCE_EVAL:
 if False:
     os.chdir("..\..\GLUE_BENCH")
     flags.losses = 'SSPIWO'
-    flags.batch_size = 4
-    flags.grad_accu = 1
+    flags.batch_size = 16
+    flags.grad_accu = 4
     flags.max_len = 64
-    flags.encoder_h = 512
+    flags.encoder_h = 200
+    flags.z_size = 32
+    flags.encoder_l = 1
+    flags.decoder_l = 1
     flags.test_name = "SSVAE/IMDB/test8"
+    flags.anneal_kl0, flags.anneal_kl1 = 1000, 2000
     flags.unsupervision_proportion = 1
     flags.supervision_proportion = 0.10
+    flags.training_iw_samples = 4
+    flags.testing_iw_samples = 4
+    flags.generation_weight = 1e-1
     flags.dev_index = 5
+    flags.sup_start = 1
     #flags.pretrained_embeddings = True[38. 42. 49. 54. 72.]
     flags.dataset = "ag_news"
 
@@ -128,8 +137,9 @@ if flags.pretrained_embeddings:
 # flags.wait_epochs = int(flags.wait_epochs /flags.supervision_proportion )
 assert flags.dev_index in (1, 2, 3, 4, 5)
 Data = {'imdb': HuggingIMDB2, 'ag_news': HuggingAGNews, 'yelp': HuggingYelp, 'ud': UDPoSDaTA}[flags.dataset]
-this_graph = {'imdb': get_sentiment_graph, 'ag_news': get_sentiment_graph, 'yelp': get_sentiment_graph,
-              'ud': get_postag_graph}[flags.dataset]
+this_graph = {'imdb': get_structured_sentiment_graph, 'ag_news': get_structured_sentiment_graph,
+              'yelp': get_structured_sentiment_graph, 'ud': get_postag_graph}[flags.dataset]
+SUP_START = 0 if flags.sup_start == 0 else flags.anneal_kl0 if flags.sup_start == 1 else flags.anneal_kl1
 MAX_LEN = flags.max_len
 BATCH_SIZE = flags.batch_size
 GRAD_ACCU = flags.grad_accu
@@ -184,6 +194,14 @@ def main():
     print("Words: ", len(data.vocab.itos), ", Target tags: ", len(data.tags.itos), ", On device: ", DEVICE.type)
     print("Loss Type: ", flags.losses, ", Supervision proportion: ", SUP_PROPORTION)
     model = Model(data.vocab, data.tags, h_params, wvs=data.wvs)
+    sup_loss = [loss for loss in model.losses if isinstance(loss, Supervision)][0]
+    unsup_loss = [loss for loss in model.losses if not isinstance(loss, Supervision)][0]
+    sup_is_started = flags.losses == 'S'
+    if not sup_is_started:
+        sup_loss.w, unsup_loss.w = 0, 1/flags.grad_accu # starting without the supervision loss
+        assert flags.grad_accu % 2 == 0, "Choose an even value (not {}) " \
+                                         "for gradient accumulation when using semi-supervision".format(flags.grad_accu)
+        h_params.grad_accumulation_steps = int(flags.grad_accu/2)
     if DEVICE.type == 'cuda':
         model.cuda(DEVICE)
 
@@ -215,12 +233,20 @@ def main():
                     print('Misshaped training sample')
                     continue
 
+                if model.step >= SUP_START and flags.losses in ('SSVAE', 'SSPIWO', 'SSiPIWO', 'SSIWAE') \
+                        and not sup_is_started:
+                    sup_loss.w, unsup_loss.w = 1/flags.grad_accu, flags.generation_weight/flags.grad_accu
+                    model.h_params.grad_accumulation_steps = flags.grad_accu
+                    model.optimizer = h_params.optimizer(model.parameters(), **h_params.optimizer_kwargs)
+                    sup_is_started = True
+                    print('Starting to use supervision. Refreshed optimizer !')
+
                 '''print([' '.join([data.vocab.itos[t] for t in text_i]) for text_i in training_batch.text[:2]])'''
 
                 if model.step == h_params.anneal_kl[0]:
                     model.optimizer = h_params.optimizer(model.parameters(), **h_params.optimizer_kwargs)
                     print('Refreshed optimizer !')
-                    if model.step != 0 and not torch.isnan(loss):
+                    if model.step != 0 and not torch.isnan(torch.tensor(loss)):
                         model.save()
                         print('Saved model after it\'s pure reconstruction phase')
                 try:
@@ -229,7 +255,7 @@ def main():
                     print("Reinitialized supervised training iterator")
                     supervision_epoch += 1
                     supervised_iterator = iter(data.sup_iter)
-                    if 'S' in flags.losses and model.step >= h_params.anneal_kl[0]:
+                    if 'S' in flags.losses and model.step >= SUP_START:
                         model.eval()
                         accuracy_split = data.val_iter if flags.stopping_crit == "early" else data.sup_iter
                         accuracy = model.get_overall_accuracy(accuracy_split)
@@ -245,18 +271,18 @@ def main():
                             best_epoch = supervision_epoch
                         else:
                             wait_count += 1
-                        if wait_count == flags.wait_epochs * 2:
+                        if wait_count == flags.wait_epochs:
                             model.reduce_lr(flags.lr_reduction)
                             print('Learning rate reduced to ', [gr['lr'] for gr in model.optimizer.param_groups])
 
-                        if wait_count == flags.wait_epochs :
+                        if wait_count >= flags.wait_epochs * 2:
                             break
 
                 """print([' '.join(['('+data.vocab.itos[t]+' '+data.tags.itos[l]+')' for t, l in zip(text_i[1:], lab_i)]) for
                        text_i, lab_i in zip(supervised_batch.text[:2], supervised_batch.label[:2])])"""
                 loss = model.opt_step({'x': training_batch.text[..., 1:], 'x_prev': training_batch.text[..., :-1]}) if flags.losses != 'S' else 0
                 loss += model.opt_step({'x': supervised_batch.text[..., 1:], 'x_prev': supervised_batch.text[..., :-1],
-                                        'y': supervised_batch.label}) if 'S' in flags.losses else 0
+                                        'y': supervised_batch.label}) if ('S' in flags.losses and sup_is_started) else 0
 
                 mean_loss += loss
                 if i % 30 == 0:
@@ -270,7 +296,7 @@ def main():
                         val_batch = limited_next(val_iterator)
                     except StopIteration:
                         val_iterator = iter(data.val_iter)
-                        print("Reinitialized test data iterator")
+                        print("Reinitialized validation data iterator")
                         val_batch = limited_next(val_iterator)
                     with torch.no_grad():
                         model({'x': val_batch.text[..., 1:], 'x_prev': val_batch.text[..., :-1], 'y': val_batch.label})
