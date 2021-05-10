@@ -39,13 +39,13 @@ parser.set_defaults(tied_embeddings=False)
 parser.add_argument('--pretrained_embeddings', dest='pretrained_embeddings', action='store_true')
 parser.add_argument('--no-pretrained_embeddings', dest='pretrained_embeddings', action='store_false')
 parser.set_defaults(pretrained_embeddings=True)
-parser.add_argument("--pos_embedding_dim", default=50, type=int)  # must be equal to encoder_h and decoder_h
+parser.add_argument("--pos_embedding_dim", default=32, type=int)  # must be equal to encoder_h and decoder_h
 parser.add_argument("--z_size", default=32, type=int)  # must be equal to encoder_h and decoder_h
 parser.add_argument("--text_rep_l", default=1, type=int) # irrelevant
 parser.add_argument("--text_rep_h", default=200, type=int) # irrelevant
 parser.add_argument("--encoder_h", default=200, type=int)
 parser.add_argument("--encoder_l", default=1, type=int)
-parser.add_argument("--pos_h", default=50, type=int) # for y in encoder and y_emb in decoder
+parser.add_argument("--pos_h", default=32, type=int) # for y in encoder and y_emb in decoder
 parser.add_argument("--pos_l", default=1, type=int) # for y in encoder and y_emb in decoder
 parser.add_argument("--decoder_h", default=200, type=int)
 parser.add_argument("--decoder_l", default=1, type=int)
@@ -96,7 +96,7 @@ if FORCE_EVAL:
 if False:
     os.chdir("..\..\GLUE_BENCH")
     flags.losses = 'SSPIWO'
-    flags.batch_size = 16
+    flags.batch_size = 2
     flags.grad_accu = 4
     flags.max_len = 64
     flags.encoder_h = 200
