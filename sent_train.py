@@ -306,7 +306,7 @@ def main():
 
                 current_time = time()
             data.reinit_iterator('valid')
-            if model.step >= h_params.anneal_kl[0]:
+            if model.step >= SUP_START:
                 model.eval()
                 if 'S' not in flags.losses:
                     pp_ub = model.get_perplexity(data.unsup_val_iter)
@@ -320,11 +320,11 @@ def main():
                     else:
                         wait_count += 1
 
-                    if wait_count == flags.wait_epochs * 2:
+                    if wait_count == flags.wait_epochs:
                         model.reduce_lr(flags.lr_reduction)
                         print('Learning rate reduced to ', [gr['lr'] for gr in model.optimizer.param_groups])
 
-                if wait_count == flags.wait_epochs:
+                if wait_count >= flags.wait_epochs * 2:
                     break
 
                 model.train()
