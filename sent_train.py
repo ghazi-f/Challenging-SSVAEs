@@ -58,8 +58,9 @@ parser.set_defaults(markovian=True)
 parser.add_argument('--alternative', dest='alternative', action='store_true')
 parser.add_argument('--no-alternative', dest='alternative', action='store_false')
 parser.set_defaults(alternative=False)
-parser.add_argument("--sup_start", default=2, choices=[0, 1, 2], type=int)
+parser.add_argument("--sup_start", default=6000, type=int)
 parser.add_argument("--losses", default='SSVAE', choices=["S", "VAE", "SSVAE", "SSPIWO", "SSiPIWO", "SSIWAE"], type=str)
+parser.add_argument("--graph", default='struct-zy', choices=["struct-zy", "zy", "y"], type=str)
 parser.add_argument("--training_iw_samples", default=20, type=int)
 parser.add_argument("--testing_iw_samples", default=5, type=int)
 parser.add_argument("--test_prior_samples", default=2, type=int)
@@ -87,6 +88,10 @@ if flags.divide_by != 1:
     flags.encoder_h = int(flags.encoder_h/flags.divide_by)
     flags.decoder_h = int(flags.decoder_h/flags.divide_by)
 
+if flags.anneal_kl0 == -1:
+    flags.anneal_kl0 = int(1e20)
+    flags.anneal_kl1 = int(1e20)
+
 # Set this to true to force training slurm scripts to rather perform evaluation
 FORCE_EVAL = False
 if FORCE_EVAL:
@@ -95,23 +100,19 @@ if FORCE_EVAL:
 # Manual Settings, Deactivate before pushing
 if False:
     os.chdir("..\..\GLUE_BENCH")
-    flags.losses = 'SSPIWO'
+    flags.losses = 'SSVAE'
     flags.batch_size = 2
+    flags.graph = 'y'
     flags.grad_accu = 4
     flags.max_len = 64
-    flags.encoder_h = 200
-    flags.z_size = 32
-    flags.encoder_l = 1
-    flags.decoder_l = 1
-    flags.test_name = "SSVAE/IMDB/test8"
-    flags.anneal_kl0, flags.anneal_kl1 = 1000, 2000
+    flags.test_name = "SSVAE/IMDB/test9"
+    flags.anneal_kl0, flags.anneal_kl1 = 0, 0#1000, 2000
     flags.unsupervision_proportion = 1
     flags.supervision_proportion = 0.10
     flags.training_iw_samples = 4
     flags.testing_iw_samples = 4
     flags.generation_weight = 1e-1
-    flags.dev_index = 5
-    flags.sup_start = 1
+    # flags.dev_index = 5
     #flags.pretrained_embeddings = True[38. 42. 49. 54. 72.]
     flags.dataset = "ag_news"
 
@@ -137,9 +138,14 @@ if flags.pretrained_embeddings:
 # flags.wait_epochs = int(flags.wait_epochs /flags.supervision_proportion )
 assert flags.dev_index in (1, 2, 3, 4, 5)
 Data = {'imdb': HuggingIMDB2, 'ag_news': HuggingAGNews, 'yelp': HuggingYelp, 'ud': UDPoSDaTA}[flags.dataset]
-this_graph = {'imdb': get_structured_sentiment_graph, 'ag_news': get_structured_sentiment_graph,
-              'yelp': get_structured_sentiment_graph, 'ud': get_postag_graph}[flags.dataset]
-SUP_START = 0 if flags.sup_start == 0 else flags.anneal_kl0 if flags.sup_start == 1 else flags.anneal_kl1
+sentence_graph = {"struct-zy": get_structured_sentence_graph,
+                  "zy": get_zy_sentence_graph, "y": get_y_sentence_graph}[flags.graph]
+word_graph = get_postag_graph
+if flags.dataset == 'ud' and flags.graph != 'struct-zy':
+    raise NotImplementedError("Still only a structured zy graph implemented for sequence labelling")
+this_graph = {'imdb': sentence_graph, 'ag_news': sentence_graph,
+              'yelp': sentence_graph, 'ud': get_postag_graph}[flags.dataset]
+SUP_START = flags.sup_start
 MAX_LEN = flags.max_len
 BATCH_SIZE = flags.batch_size
 GRAD_ACCU = flags.grad_accu
@@ -358,7 +364,7 @@ def main():
                                'embedding_dim', 'pos_embedding_dim', 'z_size',
                                'text_rep_l', 'text_rep_h', 'encoder_h', 'encoder_l',
                                'pos_h', 'pos_l', 'decoder_h', 'decoder_l', 'training_iw_samples', 'is_tied', 'pretrained'
-                               ]) + '\n')
+                               'kl-t0', 'kl-t1', 'graph']) + '\n')
 
     with open(flags.result_csv, 'a') as f:
         f.write(', '.join([flags.test_name, str(flags.dev_index), flags.losses, str(flags.supervision_proportion),
@@ -368,7 +374,8 @@ def main():
                            str(flags.embedding_dim), str(flags.pos_embedding_dim), str(flags.z_size),
                            str(flags.text_rep_l), str(flags.text_rep_h), str(flags.encoder_h), str(flags.encoder_l),
                            str(flags.pos_h), str(flags.pos_l), str(flags.decoder_h), str(flags.decoder_l),
-                           str(flags.training_iw_samples), str(flags.tied_embeddings), str(flags.pretrained_embeddings)
+                           str(flags.training_iw_samples), str(flags.tied_embeddings), str(flags.pretrained_embeddings),
+                           str(flags.anneal_kl0), str(flags.anneal_kl1), str(flags.graph)
                            ])+'\n')
 
 

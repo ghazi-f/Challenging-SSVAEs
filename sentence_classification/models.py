@@ -204,7 +204,7 @@ class SSSentenceClassification(nn.Module, metaclass=abc.ABCMeta):
     def _dump_train_viz(self):
         # Dumping gradient norm
         if (self.step % self.h_params.grad_accumulation_steps) == (self.h_params.grad_accumulation_steps - 1):
-            z_gen = [var for var in self.gen_bn.variables if var.name == 'z'][0]
+            z_gen = [var for var in self.gen_bn.variables if var.name == 'z'][0] if 'z' in self.gen_bn.name_to_v else None
             for module, name in zip([self, self.infer_bn, self.gen_bn,
                                      self.gen_bn.approximator[z_gen] if z_gen in self.gen_bn.approximator else None],
                                     ['overall', 'inference', 'generation', 'prior']):
@@ -247,43 +247,42 @@ class SSSentenceClassification(nn.Module, metaclass=abc.ABCMeta):
                 ('text', '/ground_truth', self.decode_to_text(self.gen_bn.variables_star[self.generated_v])),
                 ('text', '/reconstructions', self.decode_to_text(self.generated_v.post_params['logits'])),
             ]
-
-            n_samples = self.h_params.n_latents if self.h_params.n_latents > 1 else self.h_params.test_prior_samples
-            repeats = 2 if self.h_params.n_latents > 1 else 1
-            go_symbol = torch.ones([n_samples*repeats]).long() * self.index[self.generated_v].stoi['<go>']
-            go_symbol = go_symbol.to(self.h_params.device).unsqueeze(-1)
-            x_prev = go_symbol
-            temp = 1.0
-            only_z_sampling = True
-            gen_len = self.h_params.max_len * (3 if self.h_params.contiguous_lm else 1)
-            z_gen, y_gen = self.gen_bn.name_to_v['z'], self.gen_bn.name_to_v['y']
-            if z_gen not in self.gen_bn.parent:
-                z_sample = z_gen.prior_sample((n_samples, ))[0]
-            else:
-                z_sample = None
-            if y_gen not in self.gen_bn.parent:
-                y_sample = y_gen.prior_sample((n_samples, ))[0]
-            else:
-                y_sample = None
-            for i in range(gen_len):
-                if z_sample is not None:
-                    z_input = {'z': z_sample.unsqueeze(1).expand(z_sample.shape[0], i+1, z_sample.shape[1])}
-                    if y_sample is not None:
-                        z_input['y'] = y_sample.unsqueeze(1).expand(y_sample.shape[0], i+1, y_sample.shape[1])
-                    self.gen_bn({'x_prev': x_prev, **z_input})
+            if 'z' in self.gen_bn.name_to_v:
+                n_samples = self.h_params.n_latents if self.h_params.n_latents > 1 else self.h_params.test_prior_samples
+                repeats = 2 if self.h_params.n_latents > 1 else 1
+                go_symbol = torch.ones([n_samples*repeats]).long() * self.index[self.generated_v].stoi['<go>']
+                go_symbol = go_symbol.to(self.h_params.device).unsqueeze(-1)
+                x_prev = go_symbol
+                temp = 1.0
+                only_z_sampling = True
+                gen_len = self.h_params.max_len * (3 if self.h_params.contiguous_lm else 1)
+                z_gen, y_gen = self.gen_bn.name_to_v['z'], self.gen_bn.name_to_v['y']
+                if z_gen not in self.gen_bn.parent:
+                    z_sample = z_gen.prior_sample((n_samples, ))[0]
                 else:
                     z_sample = None
-                    self.gen_bn({'x_prev': x_prev})
-                if only_z_sampling:
-                    samples_i = self.generated_v.post_params['logits']
+                if y_gen not in self.gen_bn.parent:
+                    y_sample = y_gen.prior_sample((n_samples, ))[0]
                 else:
-                    samples_i = self.generated_v.posterior(logits=self.generated_v.post_params['logits'],
-                                                           temperature=temp).rsample()
-                x_prev = torch.cat([x_prev, torch.argmax(samples_i,     dim=-1)[..., -1].unsqueeze(-1)],
-                                   dim=-1)
-
-            summary_triplets.append(
-                ('text', '/prior_sample', self.decode_to_text(x_prev)))
+                    y_sample = None
+                for i in range(gen_len):
+                    if z_sample is not None:
+                        z_input = {'z': z_sample.unsqueeze(1).expand(z_sample.shape[0], i+1, z_sample.shape[1])}
+                        if y_sample is not None:
+                            z_input['y'] = y_sample.unsqueeze(1).expand(y_sample.shape[0], i+1, y_sample.shape[1])
+                        self.gen_bn({'x_prev': x_prev, **z_input})
+                    else:
+                        z_sample = None
+                        self.gen_bn({'x_prev': x_prev})
+                    if only_z_sampling:
+                        samples_i = self.generated_v.post_params['logits']
+                    else:
+                        samples_i = self.generated_v.posterior(logits=self.generated_v.post_params['logits'],
+                                                               temperature=temp).rsample()
+                    x_prev = torch.cat([x_prev, torch.argmax(samples_i,     dim=-1)[..., -1].unsqueeze(-1)],
+                                       dim=-1)
+                summary_triplets.append(
+                    ('text', '/prior_sample', self.decode_to_text(x_prev)))
 
         return summary_triplets
 
