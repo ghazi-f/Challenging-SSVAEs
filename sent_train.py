@@ -61,6 +61,7 @@ parser.set_defaults(alternative=False)
 parser.add_argument("--sup_start", default=6000, type=int)
 parser.add_argument("--losses", default='SSVAE', choices=["S", "VAE", "SSVAE", "SSPIWO", "SSiPIWO", "SSIWAE"], type=str)
 parser.add_argument("--graph", default='struct-zy', choices=["struct-zy", "zy", "y"], type=str)
+parser.add_argument("--y_encoder", default='lstm', choices=["lstm", 'dan'], type=str)
 parser.add_argument("--training_iw_samples", default=20, type=int)
 parser.add_argument("--testing_iw_samples", default=5, type=int)
 parser.add_argument("--test_prior_samples", default=2, type=int)
@@ -102,7 +103,8 @@ if False:
     os.chdir("..\..\GLUE_BENCH")
     flags.losses = 'SSVAE'
     flags.batch_size = 2
-    flags.graph = 'y'
+    flags.graph = 'zy'
+    flags.y_encoder = "dan"
     flags.grad_accu = 4
     flags.max_len = 64
     flags.test_name = "SSVAE/IMDB/test9"
@@ -138,8 +140,10 @@ if flags.pretrained_embeddings:
 # flags.wait_epochs = int(flags.wait_epochs /flags.supervision_proportion )
 assert flags.dev_index in (1, 2, 3, 4, 5)
 Data = {'imdb': HuggingIMDB2, 'ag_news': HuggingAGNews, 'yelp': HuggingYelp, 'ud': UDPoSDaTA}[flags.dataset]
+zy_graph = {"lstm": get_zy_sentence_graph, 'dan': get_zy_dan_graph}[flags.y_encoder]
+y_graph = {"lstm": get_y_sentence_graph, 'dan': get_y_dan_graph}[flags.y_encoder]
 sentence_graph = {"struct-zy": get_structured_sentence_graph,
-                  "zy": get_zy_sentence_graph, "y": get_y_sentence_graph}[flags.graph]
+                  "zy": zy_graph, "y": y_graph}[flags.graph]
 word_graph = get_postag_graph
 if flags.dataset == 'ud' and flags.graph != 'struct-zy':
     raise NotImplementedError("Still only a structured zy graph implemented for sequence labelling")
@@ -363,7 +367,7 @@ def main():
                                'pp_ub', 'best_epoch',
                                'embedding_dim', 'pos_embedding_dim', 'z_size',
                                'text_rep_l', 'text_rep_h', 'encoder_h', 'encoder_l',
-                               'pos_h', 'pos_l', 'decoder_h', 'decoder_l', 'training_iw_samples', 'is_tied', 'pretrained'
+                               'pos_h', 'pos_l', 'decoder_h', 'decoder_l', 'training_iw_samples', 'is_tied', 'pretrained',
                                'kl-t0', 'kl-t1', 'graph']) + '\n')
 
     with open(flags.result_csv, 'a') as f:
