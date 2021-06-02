@@ -129,8 +129,11 @@ class SSSentenceClassification(nn.Module, metaclass=abc.ABCMeta):
                 self.gen_last_states = self.gen_bn(gen_inputs, prev_states=self.gen_last_states, lens=x_len)
             # Loss computation and backward pass
             sup_loss_value = [loss.get_loss() * loss.w for loss in self.losses if isinstance(loss, Supervision)][0]
-            unsup_loss_value = [loss.get_loss(observed=[self.supervised_v.name])
-                                * loss.w for loss in self.losses if not isinstance(loss, Supervision)][0]
+            if any([not isinstance(loss, Supervision) * loss.w for loss in self.losses]):
+                unsup_loss_value = [loss.get_loss(observed=[self.supervised_v.name])
+                                    * loss.w for loss in self.losses if not isinstance(loss, Supervision)][0]
+            else:
+                unsup_loss_value = 0
             losses_sup = [unsup_loss_value, sup_loss_value]
 
             # Cleaning computation graph:
