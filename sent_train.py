@@ -8,7 +8,7 @@ import torch
 from torch import optim
 import numpy as np
 
-from data_prep import HuggingIMDB2, HuggingAGNews, HuggingYelp, UDPoSDaTA
+from data_prep import HuggingIMDB2, HuggingAGNews, HuggingYelp2, UDPoSDaTA
 from sentence_classification.models import SSSentenceClassification as Model
 from sentence_classification.h_params import DefaultSSSentenceClassificationHParams as HParams
 from sentence_classification.graphs import *
@@ -102,21 +102,22 @@ if FORCE_EVAL:
 if False:
     os.chdir("..\..\GLUE_BENCH")
     flags.losses = 'SSVAE'
-    flags.batch_size = 2
-    flags.graph = 'zy'
-    flags.y_encoder = "dan"
-    flags.grad_accu = 4
-    flags.max_len = 64
+    flags.batch_size = 32
+    flags.graph = 'y'
+    # flags.y_encoder = "dan"
+    flags.grad_accu = 2
+    flags.max_len = 16
     flags.test_name = "SSVAE/IMDB/test9"
+    flags.sup_start = 0
     flags.anneal_kl0, flags.anneal_kl1 = 0, 0#1000, 2000
     flags.unsupervision_proportion = 1
-    flags.supervision_proportion = 0.10
+    flags.supervision_proportion = 0.1
     flags.training_iw_samples = 4
     flags.testing_iw_samples = 4
     flags.generation_weight = 1e-1
     # flags.dev_index = 5
     #flags.pretrained_embeddings = True[38. 42. 49. 54. 72.]
-    flags.dataset = "ag_news"
+    flags.dataset = "ud"
 
 
 if False:
@@ -139,16 +140,16 @@ if flags.pretrained_embeddings:
 # torch.autograd.set_detect_anomaly(True)
 # flags.wait_epochs = int(flags.wait_epochs /flags.supervision_proportion )
 assert flags.dev_index in (1, 2, 3, 4, 5)
-Data = {'imdb': HuggingIMDB2, 'ag_news': HuggingAGNews, 'yelp': HuggingYelp, 'ud': UDPoSDaTA}[flags.dataset]
+Data = {'imdb': HuggingIMDB2, 'ag_news': HuggingAGNews, 'yelp': HuggingYelp2, 'ud': UDPoSDaTA}[flags.dataset]
 zy_graph = {"lstm": get_zy_sentence_graph, 'dan': get_zy_dan_graph}[flags.y_encoder]
 y_graph = {"lstm": get_y_sentence_graph, 'dan': get_y_dan_graph}[flags.y_encoder]
 sentence_graph = {"struct-zy": get_structured_sentence_graph,
                   "zy": zy_graph, "y": y_graph}[flags.graph]
-word_graph = get_postag_graph
-if flags.dataset == 'ud' and flags.graph != 'struct-zy':
-    raise NotImplementedError("Still only a structured zy graph implemented for sequence labelling")
+token_graph = {"struct-zy": get_structured_zy_token_graph,
+                  "zy": get_zy_token_graph, "y": get_y_token_graph}[flags.graph]
+
 this_graph = {'imdb': sentence_graph, 'ag_news': sentence_graph,
-              'yelp': sentence_graph, 'ud': get_postag_graph}[flags.dataset]
+              'yelp': sentence_graph, 'ud': token_graph}[flags.dataset]
 SUP_START = flags.sup_start
 MAX_LEN = flags.max_len
 BATCH_SIZE = flags.batch_size
@@ -204,10 +205,10 @@ def main():
     print("Words: ", len(data.vocab.itos), ", Target tags: ", len(data.tags.itos), ", On device: ", DEVICE.type)
     print("Loss Type: ", flags.losses, ", Supervision proportion: ", SUP_PROPORTION)
     model = Model(data.vocab, data.tags, h_params, wvs=data.wvs)
-    sup_loss = [loss for loss in model.losses if isinstance(loss, Supervision)][0]
-    unsup_loss = [loss for loss in model.losses if not isinstance(loss, Supervision)][0]
     sup_is_started = flags.losses == 'S'
     if not sup_is_started:
+        sup_loss = [loss for loss in model.losses if isinstance(loss, Supervision)][0]
+        unsup_loss = [loss for loss in model.losses if not isinstance(loss, Supervision)][0]
         sup_loss.w, unsup_loss.w = 0, 1/flags.grad_accu # starting without the supervision loss
         assert flags.grad_accu % 2 == 0, "Choose an even value (not {}) " \
                                          "for gradient accumulation when using semi-supervision".format(flags.grad_accu)
@@ -265,7 +266,7 @@ def main():
                     print("Reinitialized supervised training iterator")
                     supervision_epoch += 1
                     supervised_iterator = iter(data.sup_iter)
-                    if 'S' in flags.losses and model.step >= SUP_START:
+                    if 'S' in flags.losses and sup_is_started:
                         model.eval()
                         accuracy_split = data.val_iter if flags.stopping_crit == "early" else data.sup_iter
                         accuracy = model.get_overall_accuracy(accuracy_split)
@@ -316,7 +317,7 @@ def main():
 
                 current_time = time()
             data.reinit_iterator('valid')
-            if model.step >= SUP_START:
+            if sup_is_started:
                 model.eval()
                 if 'S' not in flags.losses:
                     pp_ub = model.get_perplexity(data.unsup_val_iter)
