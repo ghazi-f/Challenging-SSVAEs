@@ -59,6 +59,9 @@ parser.add_argument('--alternative', dest='alternative', action='store_true')
 parser.add_argument('--no-alternative', dest='alternative', action='store_false')
 parser.set_defaults(alternative=False)
 parser.add_argument("--sup_start", default=6000, type=int)
+parser.add_argument('--progressive_temp', dest='progressive_temp', action='store_true')
+parser.add_argument('--no-progressive_temp', dest='progressive_temp', action='store_false')
+parser.set_defaults(progressive_temp=False)
 parser.add_argument("--losses", default='SSVAE', choices=["S", "VAE", "SSVAE", "SSPIWO", "SSiPIWO", "SSIWAE"], type=str)
 parser.add_argument("--graph", default='struct-zy', choices=["struct-zy", "zy", "y"], type=str)
 parser.add_argument("--y_encoder", default='lstm', choices=["lstm", 'dan'], type=str)
@@ -121,16 +124,18 @@ if False:
 
 
 if False:
-    flags.losses = 'S'
+    os.chdir("..\..\GLUE_BENCH")
+    flags.losses = 'SSVAE'
     flags.batch_size = 32
-    flags.grad_accu = 1
-    flags.max_len = 256
+    flags.progressive_temp = True
+    flags.grad_accu = 2
+    flags.max_len = 64
     flags.test_name = "SSVAE/IMDB/test8"
     flags.unsupervision_proportion = 1
     flags.supervision_proportion = 1#0.125
     flags.dev_index = 5
     #flags.pretrained_embeddings = True
-    flags.dataset = "imdb"
+    flags.dataset = "ud"
 
 if flags.pretrained_embeddings:
     flags.embedding_dim = 300
@@ -150,6 +155,10 @@ token_graph = {"struct-zy": get_structured_zy_token_graph,
 
 this_graph = {'imdb': sentence_graph, 'ag_news': sentence_graph,
               'yelp': sentence_graph, 'ud': token_graph}[flags.dataset]
+if flags.progressive_temp:
+    TEMP_START, TEMP_END = 5.0, 0.5
+else:
+    TEMP_START, TEMP_END = 1.0, 1.0
 SUP_START = flags.sup_start
 MAX_LEN = flags.max_len
 BATCH_SIZE = flags.batch_size
@@ -213,6 +222,7 @@ def main():
         assert flags.grad_accu % 2 == 0, "Choose an even value (not {}) " \
                                          "for gradient accumulation when using semi-supervision".format(flags.grad_accu)
         h_params.grad_accumulation_steps = int(flags.grad_accu/2)
+    sup_var = model.infer_bn.name_to_v['y']
     if DEVICE.type == 'cuda':
         model.cuda(DEVICE)
 
@@ -243,14 +253,18 @@ def main():
                 if training_batch.text.shape[1] < 2:
                     print('Misshaped training sample')
                     continue
-
                 if model.step >= SUP_START and flags.losses in ('SSVAE', 'SSPIWO', 'SSiPIWO', 'SSIWAE') \
                         and not sup_is_started:
                     sup_loss.w, unsup_loss.w = 1/flags.grad_accu, flags.generation_weight/flags.grad_accu
                     model.h_params.grad_accumulation_steps = flags.grad_accu
                     model.optimizer = h_params.optimizer(model.parameters(), **h_params.optimizer_kwargs)
                     sup_is_started = True
+                    current_temp = TEMP_END
+                    sup_var.prior_temperature = torch.tensor([current_temp]).to(DEVICE)
                     print('Starting to use supervision. Refreshed optimizer !')
+                elif not sup_is_started:
+                    current_temp = TEMP_START + (model.step/SUP_START)*(TEMP_END-TEMP_START)
+                    sup_var.prior_temperature = torch.tensor([current_temp]).to(DEVICE)
 
                 '''print([' '.join([data.vocab.itos[t] for t in text_i]) for text_i in training_batch.text[:2]])'''
 
