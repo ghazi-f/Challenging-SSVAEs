@@ -24,8 +24,8 @@ parser.add_argument("--max_len", default=256, type=int)
 parser.add_argument("--batch_size", default=8, type=int)
 parser.add_argument("--grad_accu", default=8, type=int)
 parser.add_argument("--n_epochs", default=10000, type=int)
-parser.add_argument("--test_freq", default=32, type=int)
-parser.add_argument("--complete_test_freq", default=160, type=int)
+parser.add_argument("--test_freq", default=300000000, type=int)
+parser.add_argument("--complete_test_freq", default=300000000, type=int)
 parser.add_argument("--supervision_proportion", default=1., type=float)
 parser.add_argument("--dev_index", default=1, type=float)
 parser.add_argument("--unsupervision_proportion", default=1., type=float)
@@ -109,7 +109,7 @@ if False:
     flags.graph = 'y'
     # flags.y_encoder = "dan"
     flags.grad_accu = 2
-    flags.max_len = 16
+    flags.max_len = 8
     flags.test_name = "SSVAE/IMDB/test9"
     flags.sup_start = 0
     flags.anneal_kl0, flags.anneal_kl1 = 0, 0#1000, 2000
@@ -126,16 +126,35 @@ if False:
 if False:
     os.chdir("..\..\GLUE_BENCH")
     flags.losses = 'SSVAE'
-    flags.batch_size = 32
-    flags.progressive_temp = True
+    flags.batch_size = 16
+    flags.anneal_kl0, flags.anneal_kl1 = 0, 0#1000, 2000
+    # flags.anneal_kl0, flags.anneal_kl1 = 5000, 6000
+    flags.graph = 'y'
+    flags.dataset = "ag_news"
+    flags.max_len = 256
+    flags.sup_start = 0
+    flags.unsupervision_proportion = 0.1
+    flags.supervision_proportion = 0.5
+    # flags.pretrained_embeddings = False
+    # flags.progressive_temp = True
+    #AGNEWS
+    # SSVAE:     0.124$\pm$0.12
+    # SSVAE-KL:  0.113$\pm$0.09
+    # SSVAE-z:   0.092$\pm$0.08
+    # SSVAE-z-KL:0.092$\pm$0.10
+    # 0.124$\pm$0.12& 0.113$\pm$0.09& 0.092$\pm$0.08& 0.092$\pm$0.10
+
+    #IMDB
+    # SSVAE:     0.316$\pm$0.08
+    # SSVAE-KL:  0.322$\pm$0.08
+    # SSVAE-z:   0.260$\pm$0.08
+    # SSVAE-z-KL:0.258$\pm$0.08
+    # 0.316$\pm$0.08& 0.322$\pm$0.08& 0.260$\pm$0.08& 0.258$\pm$0.08
+
     flags.grad_accu = 2
-    flags.max_len = 64
     flags.test_name = "SSVAE/IMDB/test8"
-    flags.unsupervision_proportion = 1
-    flags.supervision_proportion = 1#0.125
     flags.dev_index = 5
     #flags.pretrained_embeddings = True
-    flags.dataset = "ud"
 
 if flags.pretrained_embeddings:
     flags.embedding_dim = 300
@@ -228,8 +247,12 @@ def main():
 
     total_unsupervised_train_samples = len(data.train_iter)*BATCH_SIZE
     total_supervised_train_samples = len(data.sup_iter.dataset.examples)
+    total_supervised_val_samples = len(data.val_iter.dataset.examples)
+    total_supervised_test_samples = len(data.test_iter.dataset.examples)
     print("Unsupervised training examples: ", total_unsupervised_train_samples,
           ", Supervised training examples: ", total_supervised_train_samples)
+    print("Supervised val examples: ", total_supervised_val_samples,
+          ", Supervised test examples: ", total_supervised_test_samples)
     current_time = time()
     #print(model)
     number_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -245,8 +268,10 @@ def main():
     wait_count = 0
     loss = torch.tensor(1e20)
     mean_loss = 0
+    time_list = []
     supervision_epoch = 0
     best_epoch = -1
+    ct = time()
     if flags.mode == 'train':
         while data.train_iter is not None:
             for i, training_batch in enumerate(data.train_iter):
@@ -310,9 +335,13 @@ def main():
                                         'y': supervised_batch.label}) if ('S' in flags.losses and sup_is_started) else 0
 
                 mean_loss += loss
-                if i % 30 == 0:
-                    mean_loss /= 30
+                time_list.append(time()-ct)
+                ct = time()
+                n_steps_stats = 200
+                if i % n_steps_stats == 0:
+                    mean_loss /= n_steps_stats
                     print("step:{}, loss:{}, seconds/step:{}".format(model.step, mean_loss, time()-current_time))
+                    print("Average iteration duration: {}+-{}".format(np.mean(time_list), np.std(time_list)))
                     mean_loss = 0
 
                 if int(model.step / (len(LOSSES))) % TEST_FREQ == TEST_FREQ-1 or True:
