@@ -144,12 +144,9 @@ class ELBo(BaseCriterion):
             thr = None
         else:
             thr = torch.tensor([self.h_params.kl_th]).to(self.h_params.device)
-        kl = sum([kullback_liebler(self.infer_lvs[lv_n], self.gen_lvs[lv_n], thr=thr)
-                  for lv_n in self.infer_lvs.keys() if observed is None or (lv_n not in observed)])
         if observed is not None:
             self.log_p_xIz += sum([self.gen_net.log_proba[lv] for lv in self.gen_lvs.values() if lv.name in observed]) \
                               * self.sequence_mask
-        kl *= self.sequence_mask
 
         # Applying KL Annealing
         if self.h_params.anneal_kl and not actual:
@@ -164,32 +161,28 @@ class ELBo(BaseCriterion):
             coeff = torch.tensor(1)
         if coeff == 0:
             kl = 0
-        if self.h_params.max_elbo:
-            # Didn't implement observed here
-            if not actual and type(kl) != int:
-                max_kl = torch.max(torch.stack([kullback_liebler(self.infer_lvs[lv_n], self.gen_lvs[lv_n], thr=thr)
-                          for lv_n in self.infer_lvs.keys()]), dim=0)
-                loss = - (torch.min(self.log_p_xIz/sen_len_rec,
-                                    -coeff * max_kl[0]/self.h_params.max_elbo/sen_len_kl)).sum(1).mean(0)
-                # loss = - torch.sum(torch.min(self.log_p_xIz, -coeff * kl/3), dim=(0, 1)) / self.valid_n_samples
-            else:
-                loss = - (self.log_p_xIz/sen_len_rec - coeff * kl/sen_len_kl).sum(1).mean(0)
         else:
-            loss = - (self.log_p_xIz/sen_len_rec - coeff * kl/sen_len_kl).sum(1).mean(0)
+            kl = sum([kullback_liebler(self.infer_lvs[lv_n], self.gen_lvs[lv_n], thr=thr)
+                      for lv_n in self.infer_lvs.keys() if observed is None or (lv_n not in observed)])
+            kl *= self.sequence_mask
+
+        loss = - (self.log_p_xIz/sen_len_rec - coeff * kl/sen_len_kl).sum(1).mean(0)
 
         with torch.no_grad():
             if observed is None:
-                if actual and thr is None:
-                    unweighted_loss = loss
-                else:
-                    un_log_p_xIz = - self._unweighted_criterion(self.generated_v.post_params['logits'].view(-1, vocab_size)/temp,
-                                                              self.gen_net.variables_star[self.generated_v].reshape(-1)
-                                                              ).view(self.gen_net.variables_star[self.generated_v].shape)
-                    un_log_p_xIz *= self.sequence_mask
-                    kl = sum([kullback_liebler(self.infer_lvs[lv_n], self.gen_lvs[lv_n], thr=None)
-                              for lv_n in self.infer_lvs.keys()]) * self.sequence_mask
-                    unweighted_loss = - (un_log_p_xIz/sen_len_rec - kl/sen_len_kl).sum(1).mean(0)
-                self._prepare_metrics(unweighted_loss)
+                # if actual and thr is None:
+                #     unweighted_loss = loss
+                # else:
+                #     un_log_p_xIz = - self._unweighted_criterion(self.generated_v.post_params['logits'].view(-1, vocab_size)/temp,
+                #                                               self.gen_net.variables_star[self.generated_v].reshape(-1)
+                #                                               ).view(self.gen_net.variables_star[self.generated_v].shape)
+                #     un_log_p_xIz *= self.sequence_mask
+                #     print("heyheyheyh")
+                #     kl = sum([kullback_liebler(self.infer_lvs[lv_n], self.gen_lvs[lv_n], thr=None)
+                #               for lv_n in self.infer_lvs.keys()]) * self.sequence_mask
+                #     unweighted_loss = - (un_log_p_xIz/sen_len_rec - kl/sen_len_kl).sum(1).mean(0)
+                # self._prepare_metrics(unweighted_loss)
+                self._prepared_metrics = {}
 
         return loss
 
@@ -198,35 +191,17 @@ class ELBo(BaseCriterion):
         LL_name = '/p({}I{}'.format(self.generated_v.name, ', '.join([lv for lv in self.infer_lvs]))
         LL_value = torch.sum(self.log_p_xIz)/self.valid_n_samples
         KL_dict = {}
-        for lv in self.gen_lvs.keys():
-            if lv not in self.infer_lvs: continue
-            gen_lv, inf_lv = self.gen_lvs[lv], self.infer_lvs[lv]
-            infer_v_name = inf_lv.name + ('I{}'.format(', '.join([lv.name for lv in self.infer_net.parent[inf_lv]]))
-                                          if inf_lv in self.infer_net.parent else '')
-            gen_v_name = gen_lv.name + ('I{}'.format(', '.join([lv.name for lv in self.gen_net.parent[gen_lv]]))
-                                        if gen_lv in self.gen_net.parent else '')
-            KL_name = '/KL(q({})IIp({}))'.format(infer_v_name, gen_v_name)
-            kl_i = kullback_liebler(inf_lv, gen_lv)*self.sequence_mask
-            KL_value = torch.sum(kl_i)/self.valid_n_samples
-            KL_dict[KL_name] = KL_value
-        if not (type(self.h_params.n_latents) == int and self.h_params.n_latents == 1):
-            for j, name in enumerate(['z1', 'z2', 'z3']):
-                if name in self.gen_lvs:
-                    gen_lv, inf_lv = self.gen_lvs[name], self.infer_lvs[name]
-                    infer_v_name = inf_lv.name + ('I{}'.format(', '.join([lv.name for lv in self.infer_net.parent[inf_lv]]))
-                                                  if inf_lv in self.infer_net.parent else '')
-                    gen_v_name = gen_lv.name + ('I{}'.format(', '.join([lv.name for lv in self.gen_net.parent[gen_lv]]))
-                                                if gen_lv in self.gen_net.parent else '')
-                    KLs = []
-                    KL_var_name = '/VarKL(q({})IIp({}))'.format(infer_v_name,gen_v_name)
-                    n_latents= self.h_params.n_latents[j]
-                    for i in range(n_latents):
-                        if gen_lv.post_params is None: continue
-                        start, end = int(i*self.h_params.z_size/n_latents), \
-                                     int((i+1)*self.h_params.z_size/n_latents)
-                        kl_i = kullback_liebler(inf_lv, gen_lv, slice=(start, end)) * self.sequence_mask
-                        KLs.append(torch.sum(kl_i) / self.valid_n_samples)
-                    KL_dict[KL_var_name] = torch.std(torch.tensor(KLs))
+        # for lv in self.gen_lvs.keys():
+        #     if lv not in self.infer_lvs: continue
+        #     gen_lv, inf_lv = self.gen_lvs[lv], self.infer_lvs[lv]
+        #     infer_v_name = inf_lv.name + ('I{}'.format(', '.join([lv.name for lv in self.infer_net.parent[inf_lv]]))
+        #                                   if inf_lv in self.infer_net.parent else '')
+        #     gen_v_name = gen_lv.name + ('I{}'.format(', '.join([lv.name for lv in self.gen_net.parent[gen_lv]]))
+        #                                 if gen_lv in self.gen_net.parent else '')
+        #     KL_name = '/KL(q({})IIp({}))'.format(infer_v_name, gen_v_name)
+        #     kl_i = kullback_liebler(inf_lv, gen_lv)*self.sequence_mask
+        #     KL_value = torch.sum(kl_i)/self.valid_n_samples
+        #     KL_dict[KL_name] = KL_value
 
         self._prepared_metrics = {'/ELBo': current_elbo, LL_name: LL_value, **KL_dict}
 
