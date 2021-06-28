@@ -13,7 +13,7 @@ for ALPHA in 1.0
 do
 for DEV_INDEX in 1 2 3 4 5
 do
-for SUP_PROP in 0.001 0.003 0.01 0.03 0.1 0.3 1.0
+for SUP_PROP in 0.01 0.03 0.1 0.3 1.0 #0.001 0.003
 do
 srun python sent_train.py --losses "S" --test_name "IMDB4/Supervised/alt$SUP_PROP.$ALPHA.$DEV_INDEX" --graph y --anneal_kl0 -1 --batch_size 32 --grad_accu 1 --supervision_proportion $SUP_PROP --max_len 256 --dev_index $DEV_INDEX --generation_weight $ALPHA --dataset imdb --result_csv imdb.csv
 done
