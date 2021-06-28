@@ -16,6 +16,7 @@ import datasets as hdatasets
 
 # ========================================== BATCH ITERATING ENDPOINTS =================================================
 VOCAB_LIMIT = 10000
+TRAIN_LIMIT = 5000
 
 
 class HuggingIMDB2:
@@ -23,10 +24,10 @@ class HuggingIMDB2:
                  pretrained=False):
         self.data_path = os.path.join(".data", "imdb")
         text_field = data.Field(lower=True, batch_first=True, fix_length=max_len, pad_token='<pad>',
-                                init_token='<go>'
-                                ,
+                                init_token='<go>',
                                 is_target=True)  # init_token='<go>', eos_token='<eos>', unk_token='<unk>', pad_token='<unk>')
         label_field = data.Field(fix_length=max_len - 1, batch_first=True, unk_token=None)
+        np.random.seed(42)
         start = time()
         try:
             train_data, test_data, unsup_data = hdatasets.Dataset.load_from_disk(self.data_path+"_train"), \
@@ -42,7 +43,13 @@ class HuggingIMDB2:
         def expand_labels(datum):
             datum['label'] = [str(datum['label'])]*(max_len-1)
             return datum
-
+        if TRAIN_LIMIT is not None:
+            sup_idx = np.random.choice(len(train_data), TRAIN_LIMIT, replace=False)
+            unsup_idx = np.random.choice(len(unsup_data), 2*TRAIN_LIMIT, replace=False)
+            train_data, unsup_data = train_data.from_dict(train_data[sup_idx]), \
+                                     unsup_data.from_dict(unsup_data[unsup_idx])
+        lens = [len(x['text'].split()) for x in train_data]
+        print("Sentence length stats: {}+-{}".format(np.mean(lens), np.std(lens)))
         train_data, test_data = train_data.map(expand_labels), test_data.map(expand_labels)
         fields1 = {'text': text_field, 'label': label_field}
         fields2 = {'text': ('text', text_field), 'label': ('label', label_field)}
@@ -56,7 +63,6 @@ class HuggingIMDB2:
         # Since the datasets are originally sorted with the label as key, we shuffle them before reducing the supervised
         # or the unsupervised data to the first few examples. We use a fixed see to keep the same data for all
         # experiments
-        np.random.seed(42)
         train_examples = [Example.fromdict(ex, fields2) for ex in train_data]
         unsup_examples = ([Example.fromdict(ex, fields4) for ex in unsup_data])
         np.random.shuffle(train_examples)
@@ -129,7 +135,7 @@ class HuggingAGNews:
                                 ,
                                 is_target=True)  # init_token='<go>', eos_token='<eos>', unk_token='<unk>', pad_token='<unk>')
         label_field = data.Field(fix_length=max_len - 1, batch_first=True, unk_token=None)
-
+        np.random.seed(42)
         start = time()
         try:
             train_data, test_data = hdatasets.Dataset.load_from_disk(self.data_path+"_train"), \
@@ -144,25 +150,33 @@ class HuggingAGNews:
             return datum
         # lens = [len(sample['text'].split(' ')) for sample in train_data]
         # print(np.quantile(lens, [0.5, 0.7, 0.9, 0.95, 0.99]))
+        if TRAIN_LIMIT is not None:
+            sup_idx = np.random.choice(len(train_data), TRAIN_LIMIT, replace=False)
+            unsup_idx = np.random.choice(len(train_data), 2*TRAIN_LIMIT, replace=False)
+            train_data, unsup_data = train_data.from_dict(train_data[sup_idx]), \
+                                     train_data.from_dict(train_data[unsup_idx])
+        else:
+            unsup_data = train_data
 
+        lens = [len(x['text'].split()) for x in train_data]
+        print("Sentence length stats: {}+-{}".format(np.mean(lens), np.std(lens)))
         train_data, test_data = train_data.map(expand_labels), test_data.map(expand_labels)
         fields1 = {'text': text_field, 'label': label_field}
         fields2 = {'text': ('text', text_field), 'label': ('label', label_field)}
         fields3 = {'text': text_field}
         fields4 = {'text': ('text', text_field)}
-        len_train = 32000
+        len_train, len_unsup = TRAIN_LIMIT or 32000, 2 * (TRAIN_LIMIT or 32000)
         dev_start, dev_end = int(len_train/5*(dev_index-1)), \
                              int(len_train/5*(dev_index))
         train_start1, train_start2, train_end1, train_end2 = 0, dev_end, int(dev_start*sup_proportion),\
                                                              int(dev_end+(len_train-dev_end)*sup_proportion)
-        unsup_start, unsup_end = len_train, int(len_train+64000*unsup_proportion)
+        unsup_start, unsup_end = 0, int(len_unsup*unsup_proportion)
 
         # Since the datasets are originally sorted with the label as key, we shuffle them before reducing the supervised
         # or the unsupervised data to the first few examples. We use a fixed see to keep the same data for all
         # experiments
-        np.random.seed(42)
         train_examples = [Example.fromdict(ex, fields2) for ex in train_data]
-        unsup_examples = ([Example.fromdict(ex, fields4) for ex in train_data])
+        unsup_examples = [Example.fromdict(ex, fields4) for ex in unsup_data]
         np.random.shuffle(train_examples)
         np.random.shuffle(unsup_examples)
         train = Dataset(train_examples[train_start1:train_end1]+train_examples[train_start2:train_end2], fields1)
@@ -198,6 +212,9 @@ class HuggingAGNews:
         self.batch_size = batch_size
         self.n_epochs = 0
         self.max_epochs = max_epochs
+        del train_data, test_data, train_examples, unsup_examples, train, val, test, unsup_train, vocab_dataset, \
+            unsup_test, unsup_val
+
         if pretrained:
             ftxt = FastText()
             self.wvs = ftxt.get_vecs_by_tokens(self.vocab.itos)
@@ -330,11 +347,12 @@ class HuggingYelp2:
     def __init__(self, max_len, batch_size, max_epochs, device, unsup_proportion=1., sup_proportion=1., dev_index=1,
                  pretrained=False):
         text_field = data.Field(lower=True, batch_first=True, fix_length=max_len, pad_token='<pad>',
-                                init_token='<go>' ,is_target=True)  # init_token='<go>', eos_token='<eos>', unk_token='<unk>', pad_token='<unk>')
+                                init_token='<go>', is_target=True)  # init_token='<go>', eos_token='<eos>', unk_token='<unk>', pad_token='<unk>')
         label_field = data.Field(fix_length=max_len - 1, batch_first=True, unk_token=None)
 
         start = time()
 
+        np.random.seed(42)
         train_data, val, test_data = BinaryYelp.splits((('text', text_field), ('label', label_field)))
 
         fields1 = {'text': text_field, 'label': label_field}
@@ -342,16 +360,15 @@ class HuggingYelp2:
         fields3 = {'text': text_field}
         fields4 = {'text': ('text', text_field)}
 
-        len_train = int(len(train_data) / 3)
+        len_train, len_unsup = TRAIN_LIMIT or int(len(train_data) / 3), 2*(TRAIN_LIMIT or int(len(train_data) / 3))
         dev_start, dev_end = int(len_train / 5 * (dev_index - 1)), \
                              int(len_train / 5 * (dev_index))
         train_start1, train_start2, train_end1, train_end2 = 0, dev_end, int(dev_start * sup_proportion), \
                                                              int(dev_end + (len_train - dev_end) * sup_proportion)
-        unsup_start, unsup_end = len_train, int(len_train + len_train * 2 * unsup_proportion)
+        unsup_start, unsup_end = 0, int(len_unsup * unsup_proportion)
         # Since the datasets are originally sorted with the label as key, we shuffle them before reducing the supervised
         # or the unsupervised data to the first few examples. We use a fixed see to keep the same data for all
         # experiments
-        np.random.seed(42)
         train_examples = [ex for ex in train_data]
         unsup_examples = [ex for ex in train_data]
         np.random.shuffle(train_examples)
@@ -476,7 +493,7 @@ class UDPoSDaTA:
                  pretrained=False):
         text_field = data.Field(lower=True, batch_first=True,  fix_length=max_len, pad_token='<pad>', init_token='<go>'
                                 , is_target=True)#init_token='<go>', eos_token='<eos>', unk_token='<unk>', pad_token='<unk>')
-        label_field = data.Field(fix_length=max_len-1, batch_first=True)
+        label_field = data.Field(fix_length=max_len-1, batch_first=True, unk_token="<pad>")
 
         # make splits for data
         #unsup_train, unsup_val, unsup_test = MyPennTreebank.splits(text_field)
@@ -485,6 +502,8 @@ class UDPoSDaTA:
         unsup_train, unsup_val, unsup_test = datasets.UDPOS.splits((('text', text_field), ('label', label_field)))
         #unsup_train, unsup_val, unsup_test = YahooLM.splits(text_field)
         train, val, test = datasets.UDPOS.splits((('text', text_field), ('label', label_field)))
+        lens = [len(t.text) for t in train]
+        print("Sentence length stats: {}+-{}".format(np.mean(lens), np.std(lens)))
 
         # build the vocabulary
         text_field.build_vocab(unsup_train, max_size=VOCAB_LIMIT)  # , vectors="fasttext.simple.300d")
@@ -498,17 +517,23 @@ class UDPoSDaTA:
         #                                                                     device=device, repeat=False, shuffle=False,
         #                                                                     sort=False)
         # Remaking splits according to supervision proportions
-        exlist = [ex for ex in train+val]
-        train =Dataset(exlist, {'text': text_field, 'label': label_field})
+        np.random.seed(42)
+        sup_exlist = [ex for ex in train+val]
+        np.random.shuffle(sup_exlist)
+        sup_exlist = sup_exlist[:TRAIN_LIMIT]
+        train = Dataset(sup_exlist, {'text': text_field, 'label': label_field})
         dev_start, dev_end = int(len(train) / 5 * (dev_index - 1)), \
                              int(len(train) / 5 * (dev_index))
         train_start1, train_start2, train_end1, train_end2 = 0, dev_end, int(dev_start * sup_proportion), \
                                                              int(dev_end + (len(train) - dev_end) * sup_proportion)
-        unsup_start, unsup_end = 0, int(len(unsup_train) * unsup_proportion)
+        unsup_exlist = [ex for ex in unsup_train+unsup_val]
+        np.random.shuffle(unsup_exlist)
+        unsup_exlist = unsup_exlist[:2*TRAIN_LIMIT]
+        unsup_start, unsup_end = 0, int(len(unsup_exlist) * unsup_proportion)
         val = Dataset(train[dev_start:dev_end], {'text': text_field, 'label': label_field})
         train = Dataset(train[train_start1:train_end1] + train[train_start2:train_end2],
                         {'text': text_field, 'label': label_field})
-        unsup_train = Dataset(unsup_train[unsup_start:unsup_end], {'text': text_field})
+        unsup_train = Dataset(unsup_exlist[unsup_start:unsup_end], {'text': text_field})
 
         # make iterator for splits
 
