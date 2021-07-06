@@ -43,7 +43,7 @@ parser.add_argument("--pos_embedding_dim", default=32, type=int)  # must be equa
 parser.add_argument("--z_size", default=32, type=int)  # must be equal to encoder_h and decoder_h
 parser.add_argument("--text_rep_l", default=1, type=int) # irrelevant
 parser.add_argument("--text_rep_h", default=200, type=int) # irrelevant
-parser.add_argument("--encoder_h", default=200, type=int)
+parser.add_argument("--encoder_h", default=100, type=int)
 parser.add_argument("--encoder_l", default=1, type=int)
 parser.add_argument("--pos_h", default=32, type=int) # for y in encoder and y_emb in decoder
 parser.add_argument("--pos_l", default=1, type=int) # for y in encoder and y_emb in decoder
@@ -58,7 +58,7 @@ parser.set_defaults(markovian=True)
 parser.add_argument('--alternative', dest='alternative', action='store_true')
 parser.add_argument('--no-alternative', dest='alternative', action='store_false')
 parser.set_defaults(alternative=False)
-parser.add_argument("--sup_start", default=6000, type=int)
+parser.add_argument("--sup_start", default=000, type=int)
 parser.add_argument('--progressive_temp', dest='progressive_temp', action='store_true')
 parser.add_argument('--no-progressive_temp', dest='progressive_temp', action='store_false')
 parser.set_defaults(progressive_temp=False)
@@ -126,15 +126,19 @@ if False:
 if False:
     os.chdir("..\..\GLUE_BENCH")
     flags.losses = 'SSVAE'
-    flags.batch_size = 16
-    flags.anneal_kl0, flags.anneal_kl1 = 0, 0#1000, 2000
+    flags.batch_size = 32
+    # flags.anneal_kl0 = int(1e20)
+    # flags.anneal_kl1 = int(1e20)
+    # flags.anneal_kl0, flags.anneal_kl1 = 0, 0#1000, 2000
     # flags.anneal_kl0, flags.anneal_kl1 = 5000, 6000
-    flags.graph = 'y'
-    flags.dataset = "ag_news"
-    flags.max_len = 256
+    flags.graph = 'zy'
+    flags.dataset = "imdb"
+    flags.max_len = 128
     flags.sup_start = 0
-    flags.unsupervision_proportion = 0.1
-    flags.supervision_proportion = 0.5
+    flags.unsupervision_proportion = 1.0
+    flags.supervision_proportion = 0.1
+    flags.encoder_h = 100
+    flags.generation_weight = 0.1
     # flags.pretrained_embeddings = False
     # flags.progressive_temp = True
     #AGNEWS
@@ -398,7 +402,7 @@ def main():
     test_accuracy = model.get_overall_accuracy(data.test_iter).item()
     train_accuracy = model.get_overall_accuracy(data.sup_iter, train_split=True).item()
     if 'SS' in flags.losses:
-        pp_ub = model.get_perplexity(data.test_iter).item()
+        pp_ub = -1#model.get_perplexity(data.test_iter).item()
     else:
         pp_ub = -1
     print("Final Test Accuracy is: {}, Final test perplexity is: {}".format(test_accuracy, pp_ub))
