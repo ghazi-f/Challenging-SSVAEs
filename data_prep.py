@@ -1,7 +1,7 @@
 # This file is destined to wrap all the data pipelining utilities (reading, tokenizing, padding, batchifying .. )
 import io
 import os
-
+#Requirements: datasets 1.1.2, pyarrow 0.17.1
 import torchtext.data as data
 from torchtext.data import Dataset, Example
 import torchtext.datasets as datasets
