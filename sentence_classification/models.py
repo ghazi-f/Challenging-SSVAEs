@@ -5,6 +5,8 @@ from tqdm import tqdm
 from sentence_classification.h_params import *
 from components.bayesnets import BayesNet
 from components.criteria import Supervision
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score
 
 
 # ==================================================== SSPOSTAG MODEL CLASS ============================================
@@ -363,6 +365,39 @@ class SSSentenceClassification(nn.Module, metaclass=abc.ABCMeta):
             else:
                 print('Model doesn\'t use supervision')
                 return self.step/1e6
+
+    def get_pretrain_accuracy(self, train_iterator, test_iterator):
+        with torch.no_grad():
+            has_supervision = any([isinstance(l, Supervision) for l in self.losses])
+            has_generation = any([isinstance(l, ELBo) for l in self.losses])
+            has_z = 'z' in self.infer_bn.name_to_v
+            if has_supervision and has_z and has_generation:
+                z_infer = self.infer_bn.name_to_v['z']
+                train_reps, test_reps = [], []
+                train_labs, test_labs = [], []
+
+                for batch in tqdm(train_iterator, desc="Getting train representations"):
+                    x_len = (batch.text[..., 1:] != self.generated_v.ignore).float().sum(-1)
+                    self.infer_bn({'x': batch.text[..., 1:]}, target=z_infer, lens=x_len)
+                    train_reps.extend(z_infer.post_params['loc'][..., 0, :].tolist())
+                    train_labs.extend(batch.label[:, 0].tolist())
+
+                for batch in tqdm(test_iterator, desc="Getting test representations"):
+                    x_len = (batch.text[..., 1:] != self.generated_v.ignore).float().sum(-1)
+                    self.infer_bn({'x': batch.text[..., 1:]}, target=z_infer, lens=x_len)
+                    test_reps.extend(z_infer.post_params['loc'][..., 0, :].tolist())
+                    test_labs.extend(batch.label[:, 0].tolist())
+
+                log_reg = LogisticRegression()
+                log_reg.fit(train_reps, train_labs)
+                test_preds = log_reg.predict(test_reps)
+                accuracy = accuracy_score(test_labs, test_preds)
+
+                return accuracy
+            else:
+                print('Model has to use semi-supervision and contain a z variable for pretraining'
+                      ' performance to be measured')
+                return -1
 
     def save(self):
         root = ''

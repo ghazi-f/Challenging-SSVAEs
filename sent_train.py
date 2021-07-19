@@ -132,11 +132,11 @@ if False:
     # flags.anneal_kl0, flags.anneal_kl1 = 0, 0#1000, 2000
     # flags.anneal_kl0, flags.anneal_kl1 = 5000, 6000
     flags.graph = 'zy'
-    flags.dataset = "dbpedia"
-    flags.max_len = 80
+    flags.dataset = "imdb"
+    flags.max_len = 64
     flags.sup_start = 0
     flags.unsupervision_proportion = 1.0
-    flags.supervision_proportion = 0.1
+    flags.supervision_proportion = 0.3
     flags.encoder_h = 100
     flags.generation_weight = 0.1
     # flags.pretrained_embeddings = False
@@ -406,6 +406,15 @@ def main():
         pp_ub = -1#model.get_perplexity(data.test_iter).item()
     else:
         pp_ub = -1
+    if flags.dataset in ("imdb", "yelp"):
+        transfer_accuracy = model.get_overall_accuracy(data.secondary_test_iter).item()
+        print("Secondary Transfer Accuracy: ", transfer_accuracy)
+        pretrain_accuracy = model.get_pretrain_accuracy(data.secondary_sup_iter, data.secondary_test_iter).item()
+        print("Secondary Pretraining Accuracy: ", pretrain_accuracy)
+    else:
+        transfer_accuracy = -1
+        pretrain_accuracy = -1
+
     print("Final Test Accuracy is: {}, Final test perplexity is: {}".format(test_accuracy, pp_ub))
     if flags.rm_save:
         os.remove(h_params.save_path)
@@ -413,6 +422,7 @@ def main():
         with open(flags.result_csv, 'w') as f:
             f.write(', '.join(['test_name', 'dev_index', 'loss_type', 'supervision_proportion', 'generation_weight',
                                'unsupervision_proportion', 'test_accuracy', 'dev_accuracy', 'train_accuracy',
+                               'transfer_accuracy', 'pretrain_accuracy',
                                'pp_ub', 'best_epoch',
                                'embedding_dim', 'pos_embedding_dim', 'z_size',
                                'text_rep_l', 'text_rep_h', 'encoder_h', 'encoder_l',
@@ -423,7 +433,8 @@ def main():
         f.write(', '.join([flags.test_name, str(flags.dev_index), flags.losses, str(flags.supervision_proportion),
                            str(flags.generation_weight),
                            str(flags.unsupervision_proportion), str(test_accuracy), str(max_acc),
-                           str(train_accuracy), str(pp_ub), str(best_epoch),
+                           str(train_accuracy), str(transfer_accuracy), str(pretrain_accuracy),
+                           str(pp_ub), str(best_epoch),
                            str(flags.embedding_dim), str(flags.pos_embedding_dim), str(flags.z_size),
                            str(flags.text_rep_l), str(flags.text_rep_h), str(flags.encoder_h), str(flags.encoder_l),
                            str(flags.pos_h), str(flags.pos_l), str(flags.decoder_h), str(flags.decoder_l),

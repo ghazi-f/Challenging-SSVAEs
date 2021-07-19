@@ -105,6 +105,57 @@ class HuggingIMDB2:
             self.wvs = ftxt.get_vecs_by_tokens(self.vocab.itos)
         else:
             self.wvs = None
+        print("Loading Secondary Dataset: Yelp")
+        self.load_yelp(dev_index,batch_size, device)
+        print("Secondart Dataset Loaded !")
+
+    def load_yelp(self,  dev_index, batch_size, device):
+        text_field = data.Field(lower=True, batch_first=True, fix_length=16, pad_token='<pad>',
+                                init_token='<go>',
+                                is_target=True)  # init_token='<go>', eos_token='<eos>', unk_token='<unk>', pad_token='<unk>')
+        label_field = data.Field(fix_length=15, batch_first=True, unk_token=None)
+
+        start = time()
+
+        train_data, val, test_data = BinaryYelp.splits((('text', text_field), ('label', label_field)))
+
+        fields1 = {'text': text_field, 'label': label_field}
+        fields3 = {'text': text_field}
+        len_train, len_unsup = TRAIN_LIMIT or int(len(train_data) / 3), 2 * (TRAIN_LIMIT or int(len(train_data) / 3))
+        dev_start, dev_end = int(len_train / 5 * (dev_index - 1)), \
+                             int(len_train / 5 * (dev_index))
+        train_start1, train_start2, train_end1, train_end2 = 0, dev_end, int(dev_start), \
+                                                             int(dev_end + (len_train - dev_end))
+        unsup_start, unsup_end = 0, int(len_unsup)
+        # Since the datasets are originally sorted with the label as key, we shuffle them before reducing the supervised
+        # or the unsupervised data to the first few examples. We use a fixed see to keep the same data for all
+        # experiments
+        train_examples = [ex for ex in train_data]
+        unsup_examples = [ex for ex in train_data]
+        np.random.shuffle(train_examples)
+        np.random.shuffle(unsup_examples)
+        train = Dataset(train_examples[train_start1:train_end1] + train_examples[train_start2:train_end2], fields1)
+        val = Dataset(train_examples[dev_start:dev_end], fields1)
+        test = Dataset([ex for ex in test_data], fields1)
+        unsup_train = Dataset(unsup_examples[unsup_start:unsup_end], fields3)
+
+        unsup_test, unsup_val = test, test
+
+        print('data loading took', time() - start)
+
+        # build the vocabulary
+        text_field.vocab = self.vocab  # , vectors="fasttext.simple.300d")
+        label_field.vocab = self.tags
+        # make iterator for splits
+        self.secondary_train_iter, _, _ = data.BucketIterator.splits(
+            (unsup_train, unsup_val, unsup_test), batch_size=batch_size, device=device, shuffle=True, sort=False)
+        _, self.secondary_unsup_val_iter, _ = data.BucketIterator.splits(
+            (unsup_train, unsup_val, unsup_test), batch_size=int(batch_size), device=device, shuffle=False,
+            sort=False)
+        self.secondary_sup_iter, _, _ = data.BucketIterator.splits(
+            (train, val, test), batch_size=batch_size, device=device, shuffle=True, sort=False)
+        _, self.secondary_val_iter, self.secondary_test_iter = data.BucketIterator.splits(
+            (train, val, test), batch_size=int(batch_size), device=device, shuffle=False, sort=False)
 
     def reinit_iterator(self, split):
         if split == 'train':
@@ -500,6 +551,81 @@ class HuggingYelp2:
             self.wvs = ftxt.get_vecs_by_tokens(self.vocab.itos)
         else:
             self.wvs = None
+        print("Loading secondary dataset: IMDB")
+        self.load_imdb(dev_index, batch_size, device)
+        print("Secondary dataset loaded !")
+
+    def load_imdb(self, dev_index, batch_size, device):
+        text_field = data.Field(lower=True, batch_first=True, fix_length=256, pad_token='<pad>',
+                                init_token='<go>',
+                                is_target=True)  # init_token='<go>', eos_token='<eos>', unk_token='<unk>', pad_token='<unk>')
+        label_field = data.Field(fix_length=255, batch_first=True, unk_token=None)
+        np.random.seed(42)
+        start = time()
+
+        data_path = os.path.join(".data", "imdb")
+        try:
+            train_data, test_data, unsup_data = hdatasets.Dataset.load_from_disk(data_path + "_train"), \
+                                                hdatasets.Dataset.load_from_disk(data_path + "_test"), \
+                                                hdatasets.Dataset.load_from_disk(data_path + "_unsup")
+        except FileNotFoundError:
+            train_data, test_data, unsup_data = load_dataset('imdb')['train'], load_dataset('imdb')['test'], \
+                                                load_dataset('imdb')['unsupervised']
+            train_data.save_to_disk(data_path + "_train")
+            test_data.save_to_disk(data_path + "_test")
+            unsup_data.save_to_disk(data_path + "_unsup")
+
+        def expand_labels(datum):
+            datum['label'] = [str(datum['label'])] * (255)
+            return datum
+
+        if TRAIN_LIMIT is not None:
+            sup_idx = np.random.choice(len(train_data), TRAIN_LIMIT, replace=False)
+            unsup_idx = np.random.choice(len(unsup_data), 2 * TRAIN_LIMIT, replace=False)
+            train_data, unsup_data = train_data.from_dict(train_data[sup_idx]), \
+                                     unsup_data.from_dict(unsup_data[unsup_idx])
+        lens = [len(x['text'].split()) for x in train_data]
+        print("Sentence length stats: {}+-{}".format(np.mean(lens), np.std(lens)))
+        train_data, test_data = train_data.map(expand_labels), test_data.map(expand_labels)
+        fields1 = {'text': text_field, 'label': label_field}
+        fields2 = {'text': ('text', text_field), 'label': ('label', label_field)}
+        fields3 = {'text': text_field}
+        fields4 = {'text': ('text', text_field)}
+        dev_start, dev_end = int(len(train_data) / 5 * (dev_index - 1)), \
+                             int(len(train_data) / 5 * (dev_index))
+        train_start1, train_start2, train_end1, train_end2 = 0, dev_end, int(dev_start), \
+                                                             int(dev_end + (len(train_data) - dev_end))
+        unsup_start, unsup_end = 0, int(len(unsup_data))
+        # Since the datasets are originally sorted with the label as key, we shuffle them before reducing the supervised
+        # or the unsupervised data to the first few examples. We use a fixed see to keep the same data for all
+        # experiments
+        train_examples = [Example.fromdict(ex, fields2) for ex in train_data]
+        unsup_examples = ([Example.fromdict(ex, fields4) for ex in unsup_data])
+        np.random.shuffle(train_examples)
+        np.random.shuffle(unsup_examples)
+        train = Dataset(train_examples[train_start1:train_end1] + train_examples[train_start2:train_end2], fields1)
+        val = Dataset(train_examples[dev_start:dev_end], fields1)
+        test = Dataset([Example.fromdict(ex, fields2) for ex in test_data], fields1)
+        unsup_train = Dataset(unsup_examples[unsup_start:unsup_end]
+                              , fields3)
+
+        unsup_test, unsup_val = test, test
+
+        print('data loading took', time() - start)
+
+        # build the vocabulary
+        text_field.vocab = self.vocab  # , vectors="fasttext.simple.300d")
+        label_field.vocab = self.tags
+        # make iterator for splits
+        self.secondary_train_iter, _, _ = data.BucketIterator.splits(
+            (unsup_train, unsup_val, unsup_test), batch_size=batch_size, device=device, shuffle=True, sort=False)
+        _, self.secondary_unsup_val_iter, _ = data.BucketIterator.splits(
+            (unsup_train, unsup_val, unsup_test), batch_size=int(batch_size), device=device, shuffle=False,
+            sort=False)
+        self.secondary_sup_iter, _, _ = data.BucketIterator.splits(
+            (train, val, test), batch_size=batch_size, device=device, shuffle=True, sort=False)
+        _, self.secondary_val_iter, self.secondary_test_iter = data.BucketIterator.splits(
+            (train, val, test), batch_size=int(batch_size), device=device, shuffle=False, sort=False)
 
     def reinit_iterator(self, split):
         if split == 'train':
@@ -1132,7 +1258,7 @@ class BinaryYelp(Dataset):
         with open(path, encoding=encoding) as input_file:
             for line in input_file:
                 sen, lab = line.split('\t')
-                sen, lab = sen.split(), [int(lab)] * len(list(sen.split()))
+                sen, lab = sen.split(), [str(int(lab))] * len(list(sen.split()))
                 examples.append(data.Example.fromlist([sen, lab], fields))
                 n_examples += 1
                 n_words.append(len(sen))
