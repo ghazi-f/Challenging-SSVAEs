@@ -409,7 +409,7 @@ def main():
     if flags.dataset in ("imdb", "yelp"):
         transfer_accuracy = model.get_overall_accuracy(data.secondary_test_iter).item()
         print("Secondary Transfer Accuracy: ", transfer_accuracy)
-        pretrain_accuracy = model.get_pretrain_accuracy(data.secondary_sup_iter, data.secondary_test_iter).item()
+        pretrain_accuracy = model.get_pretrain_accuracy(data.secondary_sup_iter, data.secondary_test_iter)
         print("Secondary Pretraining Accuracy: ", pretrain_accuracy)
     else:
         transfer_accuracy = -1
