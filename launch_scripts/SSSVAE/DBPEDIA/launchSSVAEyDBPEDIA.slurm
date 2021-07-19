@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=SSVAEy
 #SBATCH --gres=gpu:1
-#SBATCH --qos=qos_gpu-t3
+#SBATCH --qos=qos_gpu-t4
 #SBATCH --output=./dbpediavae.txt
 #SBATCH --error=./dbpediavae.err
-#SBATCH --time=20:00:00
+#SBATCH --time=100:00:00
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=5
 #SBATCH --ntasks-per-node=1
