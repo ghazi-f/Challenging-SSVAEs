@@ -8,7 +8,7 @@ import torch
 from torch import optim
 import numpy as np
 
-from data_prep import HuggingIMDB2, HuggingAGNews, HuggingYelp2, UDPoSDaTA
+from data_prep import HuggingIMDB2, HuggingAGNews, HuggingYelp2, UDPoSDaTA, HuggingDBPedia
 from sentence_classification.models import SSSentenceClassification as Model
 from sentence_classification.h_params import DefaultSSSentenceClassificationHParams as HParams
 from sentence_classification.graphs import *
@@ -18,7 +18,7 @@ parser = argparse.ArgumentParser()
 # Training and Optimization
 parser.add_argument("--test_name", default='unnamed', type=str)
 parser.add_argument("--mode", default='train', choices=["train", "eval"], type=str)
-parser.add_argument("--dataset", default='imdb', choices=["imdb", "ag_news", "yelp", "ud"], type=str)
+parser.add_argument("--dataset", default='imdb', choices=["imdb", "ag_news", "yelp", "ud", "dbpedia"], type=str)
 parser.add_argument("--result_csv", default='imdb.csv', type=str)
 parser.add_argument("--max_len", default=256, type=int)
 parser.add_argument("--batch_size", default=8, type=int)
@@ -132,8 +132,8 @@ if False:
     # flags.anneal_kl0, flags.anneal_kl1 = 0, 0#1000, 2000
     # flags.anneal_kl0, flags.anneal_kl1 = 5000, 6000
     flags.graph = 'zy'
-    flags.dataset = "imdb"
-    flags.max_len = 128
+    flags.dataset = "dbpedia"
+    flags.max_len = 80
     flags.sup_start = 0
     flags.unsupervision_proportion = 1.0
     flags.supervision_proportion = 0.1
@@ -168,7 +168,8 @@ if flags.pretrained_embeddings:
 # torch.autograd.set_detect_anomaly(True)
 # flags.wait_epochs = int(flags.wait_epochs /flags.supervision_proportion )
 assert flags.dev_index in (1, 2, 3, 4, 5)
-Data = {'imdb': HuggingIMDB2, 'ag_news': HuggingAGNews, 'yelp': HuggingYelp2, 'ud': UDPoSDaTA}[flags.dataset]
+Data = {'imdb': HuggingIMDB2, 'ag_news': HuggingAGNews, 'yelp': HuggingYelp2, 'ud': UDPoSDaTA,
+        "dbpedia": HuggingDBPedia}[flags.dataset]
 zy_graph = {"lstm": get_zy_sentence_graph, 'dan': get_zy_dan_graph}[flags.y_encoder]
 y_graph = {"lstm": get_y_sentence_graph, 'dan': get_y_dan_graph}[flags.y_encoder]
 sentence_graph = {"struct-zy": get_structured_sentence_graph,
@@ -176,7 +177,7 @@ sentence_graph = {"struct-zy": get_structured_sentence_graph,
 token_graph = {"struct-zy": get_structured_zy_token_graph,
                   "zy": get_zy_token_graph, "y": get_y_token_graph}[flags.graph]
 
-this_graph = {'imdb': sentence_graph, 'ag_news': sentence_graph,
+this_graph = {'imdb': sentence_graph, 'ag_news': sentence_graph, "dbpedia":sentence_graph,
               'yelp': sentence_graph, 'ud': token_graph}[flags.dataset]
 if flags.progressive_temp:
     TEMP_START, TEMP_END = 5.0, 0.5

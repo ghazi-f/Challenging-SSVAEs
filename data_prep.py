@@ -241,6 +241,96 @@ class HuggingAGNews:
             raise NameError('Misspelled split name : {}'.format(split))
 
 
+class HuggingDBPedia:
+
+    def __init__(self, max_len, batch_size, max_epochs, device, unsup_proportion=1., sup_proportion=1., dev_index=1,
+                 pretrained=False):
+        text_field = data.Field(lower=True, batch_first=True, fix_length=max_len, pad_token='<pad>',
+                                init_token='<go>', is_target=True)
+        label_field = data.Field(fix_length=max_len - 1, batch_first=True, unk_token=None)
+
+        start = time()
+
+        np.random.seed(42)
+        train_data, val, test_data = DBPedia.splits((('text', text_field), ('label', label_field)))
+
+        fields1 = {'text': text_field, 'label': label_field}
+        fields2 = {'text': ('text', text_field), 'label': ('label', label_field)}
+        fields3 = {'text': text_field}
+        fields4 = {'text': ('text', text_field)}
+
+        len_train, len_unsup = TRAIN_LIMIT or int(len(train_data) / 3), 2*(TRAIN_LIMIT or int(len(train_data) / 3))
+        dev_start, dev_end = int(len_train / 5 * (dev_index - 1)), \
+                             int(len_train / 5 * (dev_index))
+        train_start1, train_start2, train_end1, train_end2 = 0, dev_end, int(dev_start * sup_proportion), \
+                                                             int(dev_end + (len_train - dev_end) * sup_proportion)
+        unsup_start, unsup_end = 0, int(len_unsup * unsup_proportion)
+        # Since the datasets are originally sorted with the label as key, we shuffle them before reducing the supervised
+        # or the unsupervised data to the first few examples. We use a fixed see to keep the same data for all
+        # experiments
+        train_examples = [ex for ex in train_data]
+        unsup_examples = [ex for ex in train_data]
+        np.random.shuffle(train_examples)
+        np.random.shuffle(unsup_examples)
+        train = Dataset(train_examples[train_start1:train_end1] + train_examples[train_start2:train_end2], fields1)
+        val = Dataset(train_examples[dev_start:dev_end], fields1)
+        test = Dataset([ex for ex in test_data], fields1)
+        unsup_train = Dataset(unsup_examples[unsup_start:unsup_end], fields3)
+
+        vocab_dataset = Dataset(train_examples, fields1)
+        unsup_test, unsup_val = test, test
+
+        print('data loading took', time() - start)
+
+        # build the vocabulary
+        text_field.build_vocab(vocab_dataset, max_size=VOCAB_LIMIT)  # , vectors="fasttext.simple.300d")
+        label_field.build_vocab(train)
+        # make iterator for splits
+        self.train_iter, _, _ = data.BucketIterator.splits(
+            (unsup_train, unsup_val, unsup_test), batch_size=batch_size, device=device, shuffle=True, sort=False)
+        _, self.unsup_val_iter, _ = data.BucketIterator.splits(
+            (unsup_train, unsup_val, unsup_test), batch_size=int(batch_size), device=device, shuffle=False,
+            sort=False)
+        self.sup_iter, _, _ = data.BucketIterator.splits(
+            (train, val, test), batch_size=batch_size, device=device, shuffle=True, sort=False)
+        _, self.val_iter, self.test_iter = data.BucketIterator.splits(
+            (train, val, test), batch_size=int(batch_size), device=device, shuffle=False, sort=False)
+
+        self.vocab = text_field.vocab
+        self.tags = label_field.vocab
+        self.text_field = text_field
+        self.label_field = label_field
+        self.device = device
+        self.batch_size = batch_size
+        self.n_epochs = 0
+        self.max_epochs = max_epochs
+        if pretrained:
+            ftxt = FastText()
+            self.wvs = ftxt.get_vecs_by_tokens(self.vocab.itos)
+        else:
+            self.wvs = None
+
+    def reinit_iterator(self, split):
+        if split == 'train':
+            self.n_epochs += 1
+            print("Finished epoch n°{}".format(self.n_epochs))
+            if self.n_epochs < self.max_epochs:
+                self.train_iter.init_epoch()
+            else:
+                print("Reached n_epochs={} and finished training !".format(self.n_epochs))
+                self.train_iter = None
+
+        elif split == 'valid':
+            self.val_iter.init_epoch()
+        elif split == 'test':
+            self.test_iter.init_epoch()
+        elif split == 'unsup_valid':
+            self.unsup_val_iter.init_epoch()
+        else:
+            raise NameError('Misspelled split name : {}'.format(split))
+
+
+
 class HuggingYelp:
 
     def __init__(self, max_len, batch_size, max_epochs, device, unsup_proportion, sup_proportion, dev_index=1,
@@ -1064,4 +1154,50 @@ class BinaryYelp(Dataset):
 
         return super(BinaryYelp, cls).splits(
             path=os.path.join(".data", "binary_yelp"), fields=fields, root=root, train=train, validation=validation,
+            test=test, **kwargs)
+
+
+class DBPedia(Dataset):
+
+    urls = []
+    dirname = ''
+    name = ''
+
+    @staticmethod
+    def sort_key(example):
+        for attr in dir(example):
+            if not callable(getattr(example, attr)) and \
+                    not attr.startswith("__"):
+                return len(getattr(example, attr))
+        return 0
+
+    def __init__(self, path, fields, encoding="utf-8", separator="\t", verbose=1, shuffle_seed=42, **kwargs):
+        examples = []
+        n_examples, n_words, n_chars = 0, [], []
+        with open(path, encoding=encoding) as input_file:
+            for line in input_file:
+                lab = line[0]
+                sen = line.split('","')[-1][:-2]
+                sen, lab = sen.split(), [int(lab)] * len(list(sen.split()))
+                examples.append(data.Example.fromlist([sen, lab], fields))
+                n_examples += 1
+                n_words.append(len(sen))
+        if verbose:
+            print("Dataset has {}  examples. statistics:\n -words: {}+-{}(quantiles(0.5, 0.7, 0.9, 0.95, "
+                  "0.99:{},{},{},{},{})".format(n_examples, np.mean(n_words), np.std(n_words),
+                                                *np.quantile(n_words, [0.5, 0.7, 0.9, 0.95, 0.99])))
+        np.random.seed(42)
+        np.random.shuffle(examples)
+        super(DBPedia, self).__init__(examples, fields, **kwargs)
+
+    @classmethod
+    def splits(cls, fields, root=".data", train="train_subsampled.csv",
+               validation="test.csv",
+               test="test.csv", **kwargs):
+        """Loads the Universal Dependencies Version 1 POS Tagged
+        data.
+        """
+
+        return super(DBPedia, cls).splits(
+            path=os.path.join(".data", "dbpedia"), fields=fields, root=root, train=train, validation=validation,
             test=test, **kwargs)
