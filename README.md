@@ -1,7 +1,7 @@
-# Prioritizing with importance weighting in Semi-Supervised Variational Autoencoders
+# Challenging the Semi-Supervised VAE Framework for Text Classification
 This repository serves reproducing the experiments from the paper 
-[Controlling the Interaction Between Generation and Inference in 
-Semi-Supervised Variational Autoencoders Using Importance Weighting](https://arxiv.org/abs/2010.06549).
+[Challenging the Semi-Supervised VAE Framework for Text 
+Classification(link to be added)](https://arxiv.org/abs/2010.06549).
 
 The commands for running the set of experiment for each model and each dataset
 is in the corresponding ```.slurm``` or ```.sh``` file

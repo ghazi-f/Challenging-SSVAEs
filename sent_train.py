@@ -64,7 +64,7 @@ parser.add_argument('--no-progressive_temp', dest='progressive_temp', action='st
 parser.set_defaults(progressive_temp=False)
 parser.add_argument("--losses", default='SSVAE', choices=["S", "VAE", "SSVAE", "SSPIWO", "SSiPIWO", "SSIWAE"], type=str)
 parser.add_argument("--graph", default='struct-zy', choices=["struct-zy", "zy", "y"], type=str)
-parser.add_argument("--y_encoder", default='lstm', choices=["lstm", 'dan'], type=str)
+parser.add_argument("--y_encoder", default='lstm', choices=["lstm"], type=str)
 parser.add_argument("--training_iw_samples", default=20, type=int)
 parser.add_argument("--testing_iw_samples", default=5, type=int)
 parser.add_argument("--test_prior_samples", default=2, type=int)
@@ -101,68 +101,9 @@ FORCE_EVAL = False
 if FORCE_EVAL:
     flags.mode = "eval"
     flags.result_csv = "imdbeval.csv"
-# Manual Settings, Deactivate before pushing
-if False:
-    os.chdir("..\..\GLUE_BENCH")
-    flags.losses = 'SSVAE'
-    flags.batch_size = 32
-    flags.graph = 'y'
-    # flags.y_encoder = "dan"
-    flags.grad_accu = 2
-    flags.max_len = 8
-    flags.test_name = "SSVAE/IMDB/test9"
-    flags.sup_start = 0
-    flags.anneal_kl0, flags.anneal_kl1 = 0, 0#1000, 2000
-    flags.unsupervision_proportion = 1
-    flags.supervision_proportion = 0.1
-    flags.training_iw_samples = 4
-    flags.testing_iw_samples = 4
-    flags.generation_weight = 1e-1
-    # flags.dev_index = 5
-    #flags.pretrained_embeddings = True[38. 42. 49. 54. 72.]
-    flags.dataset = "ud"
-
-
-if False:
-    os.chdir("..\..\GLUE_BENCH")
-    flags.losses = 'SSVAE'
-    flags.batch_size = 32
-    # flags.anneal_kl0 = int(1e20)
-    # flags.anneal_kl1 = int(1e20)
-    # flags.anneal_kl0, flags.anneal_kl1 = 0, 0#1000, 2000
-    # flags.anneal_kl0, flags.anneal_kl1 = 5000, 6000
-    flags.graph = 'zy'
-    flags.dataset = "imdb"
-    flags.max_len = 64
-    flags.sup_start = 0
-    flags.unsupervision_proportion = 1.0
-    flags.supervision_proportion = 0.3
-    flags.encoder_h = 100
-    flags.generation_weight = 0.1
-    # flags.pretrained_embeddings = False
-    # flags.progressive_temp = True
-    #AGNEWS
-    # SSVAE:     0.124$\pm$0.12
-    # SSVAE-KL:  0.113$\pm$0.09
-    # SSVAE-z:   0.092$\pm$0.08
-    # SSVAE-z-KL:0.092$\pm$0.10
-    # 0.124$\pm$0.12& 0.113$\pm$0.09& 0.092$\pm$0.08& 0.092$\pm$0.10
-
-    #IMDB
-    # SSVAE:     0.316$\pm$0.08
-    # SSVAE-KL:  0.322$\pm$0.08
-    # SSVAE-z:   0.260$\pm$0.08
-    # SSVAE-z-KL:0.258$\pm$0.08
-    # 0.316$\pm$0.08& 0.322$\pm$0.08& 0.260$\pm$0.08& 0.258$\pm$0.08
-
-    flags.grad_accu = 2
-    flags.test_name = "SSVAE/IMDB/test8"
-    flags.dev_index = 5
-    #flags.pretrained_embeddings = True
 
 if flags.pretrained_embeddings:
     flags.embedding_dim = 300
-    #flags.tied_embeddings = True
     flags.decoder_h = flags.embedding_dim
 
 # torch.autograd.set_detect_anomaly(True)
@@ -170,8 +111,8 @@ if flags.pretrained_embeddings:
 assert flags.dev_index in (1, 2, 3, 4, 5)
 Data = {'imdb': HuggingIMDB2, 'ag_news': HuggingAGNews, 'yelp': HuggingYelp2, 'ud': UDPoSDaTA,
         "dbpedia": HuggingDBPedia}[flags.dataset]
-zy_graph = {"lstm": get_zy_sentence_graph, 'dan': get_zy_dan_graph}[flags.y_encoder]
-y_graph = {"lstm": get_y_sentence_graph, 'dan': get_y_dan_graph}[flags.y_encoder]
+zy_graph = get_zy_sentence_graph
+y_graph = get_y_sentence_graph
 sentence_graph = {"struct-zy": get_structured_sentence_graph,
                   "zy": zy_graph, "y": y_graph}[flags.graph]
 token_graph = {"struct-zy": get_structured_zy_token_graph,
