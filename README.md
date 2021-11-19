@@ -1,7 +1,7 @@
 # Challenging the Semi-Supervised VAE Framework for Text Classification
 This repository serves reproducing the experiments from the paper 
 [Challenging the Semi-Supervised VAE Framework for Text 
-Classification(link to be added)](https://arxiv.org/abs/2010.06549).
+Classification(link to be added)](https://aclanthology.org/2021.insights-1.19/).
 
 The commands for running the set of experiment for each model and each dataset
 is in the corresponding ```.slurm``` or ```.sh``` file
